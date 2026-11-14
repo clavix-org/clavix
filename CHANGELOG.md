@@ -5,6 +5,15 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.2](https://github.com/clavix-org/clavix/compare/v0.33.1...v0.33.2) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** bump quinn-udp to 0.5.16 for RUSTSEC-2026-0538 ([#500](https://github.com/clavix-org/clavix/issues/500)) ([1789fc1](https://github.com/clavix-org/clavix/commit/1789fc1d79f85bec09ca1fe8ea4abdeb7d916bdb))
+
+No security exposure: quinn-udp only sits in the lockfile as an optional dependency of the HTTP stack and is not compiled into Clavix, so 0.33.1 was never affected. This bump only clears the audit gate. Also in this release: a small credit line at the bottom of the About section of the Info dialog ([#499](https://github.com/clavix-org/clavix/issues/499)).
+
 ## [0.33.1](https://github.com/clavix-org/clavix/compare/v0.33.0...v0.33.1) (2026-11-11)
 
 
