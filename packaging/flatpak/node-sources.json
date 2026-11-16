@@ -141,10 +141,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/@inlang/paraglide-js/-/paraglide-js-3.2.1.tgz",
-    "sha512": "4f14dac6f8c43230e83e51f6888b93cfc80f1cfc8952e625f4882e6f2c85db9a8184f1c9b59ab4d7d6f3a1872058acb28f8315b8b2e25592ba8ceba7915ac47d",
+    "url": "https://registry.npmjs.org/@inlang/paraglide-js/-/paraglide-js-3.2.2.tgz",
+    "sha512": "6284366879b34a00bec9f5202b07097b0dc5d2515fc0b26cae21826f04078897e32863638509db46bd0e5e8c6ccb6ba5636fe02bcbd8a62a61b93bf6274c1fe5",
     "dest": "npm-registry/@inlang/paraglide-js/-",
-    "dest-filename": "paraglide-js-3.2.1.tgz"
+    "dest-filename": "paraglide-js-3.2.2.tgz"
   },
   {
     "type": "file",
@@ -519,10 +519,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/@sveltejs/kit/-/kit-3.1.1.tgz",
-    "sha512": "06210cbde9185c4f46bbf621589ff22745832c7d4f5ff7668ee01e169e6baed76681dce48edec3be29a548ffbf538b60a68b25ee9904db496e1e972773a06047",
+    "url": "https://registry.npmjs.org/@sveltejs/kit/-/kit-3.2.0.tgz",
+    "sha512": "ce16fc19378577fe81c1fa9a638c0a205ede1400983a09ff28da6957a5071411e4d7be01e1def14ed37bc743f168f3e5c2709381b9e969817aafd962af3d018b",
     "dest": "npm-registry/@sveltejs/kit/-",
-    "dest-filename": "kit-3.1.1.tgz"
+    "dest-filename": "kit-3.2.0.tgz"
   },
   {
     "type": "file",
@@ -3137,10 +3137,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/vite/-/vite-8.3.7.tgz",
-    "sha512": "a3187474cc6b6b206bdf749c26fbc12761c14368dcd5306b5ca4763722ff309f563ee5f5f663760d75949b2c0a772c39445550068f219ad6f614c0b42c7ae79e",
+    "url": "https://registry.npmjs.org/vite/-/vite-8.3.8.tgz",
+    "sha512": "2f33a7de1f6b1bfd2f84b757ad5e3227840503d784a2a0a5f98c7e90625deda07dc3a9df3605472926302cf6541ebcf86466beb7e9178d5f62b6f7070cb428b8",
     "dest": "npm-registry/vite/-",
-    "dest-filename": "vite-8.3.7.tgz"
+    "dest-filename": "vite-8.3.8.tgz"
   },
   {
     "type": "file",
@@ -3622,7 +3622,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"3.2.1\"}, \"name\": \"@inlang/paraglide-js\", \"time\": {\"3.2.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.2.1\": {\"dist\": {\"integrity\": \"sha512-TxTaxvjEMjDoPlH2iIuTz8gPHPyJUuYl9IgubyyF25qBhPHJtZq019bzoYcgWKyyj4MVuLLiVZK6jOunkVrEfQ==\", \"tarball\": \"http://127.0.0.1:4873/@inlang/paraglide-js/-/paraglide-js-3.2.1.tgz\"}, \"name\": \"@inlang/paraglide-js\", \"version\": \"3.2.1\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"3.2.2\"}, \"name\": \"@inlang/paraglide-js\", \"time\": {\"3.2.2\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.2.2\": {\"dist\": {\"integrity\": \"sha512-YoQ2aHmzSgC+yfUgKwcJew3F0lFfwLJsriGCbwQHiJfjKGNjhQnbRr0OXoxsy2ulY2/gK8vYpiphuTv2J0wf5Q==\", \"tarball\": \"http://127.0.0.1:4873/@inlang/paraglide-js/-/paraglide-js-3.2.2.tgz\"}, \"name\": \"@inlang/paraglide-js\", \"version\": \"3.2.2\"}}}",
     "dest": "npm-registry/@inlang/paraglide-js",
     "dest-filename": "packument.json"
   },
@@ -4102,7 +4102,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"3.1.1\"}, \"name\": \"@sveltejs/kit\", \"time\": {\"3.1.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.1.1\": {\"dist\": {\"integrity\": \"sha512-BiEMvekYXE9Gu/YhWJ/yJ0WDLH1PX/dmjuAeFp5rrtdmgdzkjt7DvimlSP+/U4tgposl7pkE20luHpcnc6BgRw==\", \"tarball\": \"http://127.0.0.1:4873/@sveltejs/kit/-/kit-3.1.1.tgz\"}, \"name\": \"@sveltejs/kit\", \"version\": \"3.1.1\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"3.2.0\"}, \"name\": \"@sveltejs/kit\", \"time\": {\"3.2.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.2.0\": {\"dist\": {\"integrity\": \"sha512-zhb8GTeFd/6BwfqaY4wKIF7eFACYOgn/KNppV6UHFBHk174B4d7xTtN7x0PxaPPlwnCTgbnpaYF6r9lirz0Biw==\", \"tarball\": \"http://127.0.0.1:4873/@sveltejs/kit/-/kit-3.2.0.tgz\"}, \"name\": \"@sveltejs/kit\", \"version\": \"3.2.0\"}}}",
     "dest": "npm-registry/@sveltejs/kit",
     "dest-filename": "packument.json"
   },
@@ -6196,7 +6196,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"8.3.7\"}, \"name\": \"vite\", \"time\": {\"8.3.7\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"8.3.7\": {\"dist\": {\"integrity\": \"sha512-oxh0dMxrayBr33ScJvvBJ2HBQ2jc1TBrXKR2NyL/MJ9WPuX19mN2DXWUmywKdyw5RFVQBo8hmtb2FMC0LHrnng==\", \"tarball\": \"http://127.0.0.1:4873/vite/-/vite-8.3.7.tgz\"}, \"name\": \"vite\", \"version\": \"8.3.7\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"8.3.8\"}, \"name\": \"vite\", \"time\": {\"8.3.8\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"8.3.8\": {\"dist\": {\"integrity\": \"sha512-LzOn3h9rG/0vhLdXrV4yJ4QFA9eEoqCl+Yx+kGJd7aB9w6nfNgVHKSYwLPZUHrz4ZGa+t+kXjV9itvcHDLQouA==\", \"tarball\": \"http://127.0.0.1:4873/vite/-/vite-8.3.8.tgz\"}, \"name\": \"vite\", \"version\": \"8.3.8\"}}}",
     "dest": "npm-registry/vite",
     "dest-filename": "packument.json"
   },
