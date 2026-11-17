@@ -41,15 +41,14 @@ gh attestation verify <file> --repo clavix-org/clavix
    runners.
 3. The workflow submits the unsigned Windows bundles to SignPath, which
    checks that they come from that workflow run of this repository.
-4. SignPath signs them automatically under the release signing policy,
-   which only accepts requests from the release workflow on a version
-   tag of this repository.
+4. An approver reviews the signing request and approves it manually in
+   SignPath. No release is signed without that approval.
 5. SignPath returns the signed files, which the workflow attaches to the
    GitHub release.
 
-Signing is automatic, so the control is upstream: a release tag can only
-come from a release-please pull request merged into `master` by a
-committer, after review and the required CI checks.
+The SignPath artifact configuration enforces the product name and
+version metadata of every signed file, so a signature cannot be applied
+to a binary that does not identify itself as that Clavix release.
 
 ## Team roles
 
@@ -62,8 +61,8 @@ committer, after review and the required CI checks.
   goes through a pull request and the required CI checks.
 - **Reviewers** review pull requests from contributors who are not
   committers before they are merged.
-- **Approvers** manage the SignPath project and its signing policies,
-  and decide which workflows and branches may request a signature.
+- **Approvers** approve each signing request in SignPath and decide
+  whether a release may be signed.
 
 Every team member uses multi-factor authentication on GitHub and on
 SignPath.

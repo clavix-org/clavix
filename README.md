@@ -8,7 +8,7 @@
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 [![Website](https://img.shields.io/badge/website-clavix.org-175ddc)](https://clavix.org)
 
-🌐 **Website: [clavix.org](https://clavix.org)**
+🌐 **Website: [clavix.org](https://clavix.org)** · [Code signing policy](CODE_SIGNING.md)
 
 > ⚠️ **Alpha software.** Do not use with a real Vaultwarden vault yet.
 > The cryptography has not been independently audited, no stable release
@@ -544,7 +544,8 @@ clavix/
   is not OS code signing. macOS builds are also signed with a Developer ID
   and notarized by Apple, so Gatekeeper opens them without a warning;
   Windows SmartScreen still warns on first launch. Windows signing through
-  SignPath Foundation is in progress, see [CODE_SIGNING.md](CODE_SIGNING.md).
+  SignPath Foundation is in progress, see the
+  [code signing policy](CODE_SIGNING.md).
 - Security review notes live in [SECURITY.md](SECURITY.md),
   [THREAT_MODEL.md](THREAT_MODEL.md), [CRYPTO.md](CRYPTO.md), and
   [AUDIT_SCOPE.md](AUDIT_SCOPE.md).

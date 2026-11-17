@@ -144,6 +144,8 @@ jobs:
             echo "- \`.dmg\` / \`.app.tar.gz\` : macOS (universal)"
             echo "- \`.msi\` / \`-setup.exe\` : Windows (x64)"
             echo "- \`-frontend.tar.gz\` : the built web UI, for distribution packagers"
+            echo
+            echo "Code signing policy: https://github.com/clavix-org/clavix/blob/master/CODE_SIGNING.md"
             echo "CLAVIX_RELEASE_NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
 
