@@ -147,6 +147,53 @@ jobs:
             echo "CLAVIX_RELEASE_NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # macOS signing + notarization, so Gatekeeper opens the app without the
+      # "unidentified developer" block. Tauri does the whole job when these
+      # variables are present: it imports the certificate into a throwaway
+      # keychain, signs the .app with the hardened runtime, notarizes it with
+      # Apple, staples the ticket, then signs the DMG that wraps it.
+      #
+      # Exported here rather than set on the tauri-action step because an
+      # unset secret becomes an empty string there, and Tauri treats an empty
+      # APPLE_CERTIFICATE as "present" and fails importing it. Forks and
+      # repositories without the secrets keep building unsigned bundles; a
+      # half-filled set fails loudly instead of shipping something unsigned
+      # by accident.
+      - name: Configure macOS code signing
+        id: macos-signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          names=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+          set_count=0
+          for n in "${names[@]}"; do
+            [ -n "${!n}" ] && set_count=$((set_count + 1))
+          done
+
+          if [ "$set_count" -eq 0 ]; then
+            echo "::warning::No Apple signing secrets set; the macOS bundles will be unsigned."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$set_count" -ne "${#names[@]}" ]; then
+            for n in "${names[@]}"; do
+              [ -z "${!n}" ] && echo "::error::Secret $n is missing."
+            done
+            exit 1
+          fi
+
+          for n in "${names[@]}"; do
+            echo "$n=${!n}" >> "$GITHUB_ENV"
+          done
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Build and bundle with tauri-action
         uses: tauri-apps/tauri-action@v1
         env:
@@ -158,6 +205,21 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.tauri-target }}
+
+      # Checks what a user's Mac will check, so a signing that silently fell
+      # back to ad-hoc (or a notarization that was skipped) fails the release
+      # job instead of reaching users as a Gatekeeper warning.
+      - name: Verify macOS signature and notarization
+        if: steps.macos-signing.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n1)"
+          dmg="$(find "$bundle/dmg" -maxdepth 1 -name '*.dmg' | head -n1)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+          codesign --verify --verbose=2 "$dmg"
 
       # One list for every runner: each one matches only its own bundles, and
       # the action fails only when nothing at all matches, which would mean the
