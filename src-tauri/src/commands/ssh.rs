@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, UserAttentionType};
 use tokio::sync::oneshot;
 
 use crate::ssh_agent::{self, SignGuard, SignPolicy, SignRequest};
@@ -182,13 +182,7 @@ async fn request_confirmation(app: &AppHandle, req: SignRequest) -> bool {
     let (tx, rx) = oneshot::channel();
     state.ssh_confirms.lock().insert(id, tx);
 
-    // Signing usually happens while Clavix sits in the tray, so bring the
-    // window forward or the prompt would never be seen.
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.unminimize();
-        let _ = win.show();
-        let _ = win.set_focus();
-    }
+    surface_prompt(app);
 
     let payload = ConfirmRequest {
         id,
@@ -204,14 +198,56 @@ async fn request_confirmation(app: &AppHandle, req: SignRequest) -> bool {
         return false;
     }
 
-    match tokio::time::timeout(Duration::from_secs(30), rx).await {
+    let approved = match tokio::time::timeout(Duration::from_secs(30), rx).await {
         Ok(Ok(approved)) => approved,
         // Timed out, or the sender was dropped — deny and clean up.
         _ => {
             state.ssh_confirms.lock().remove(&id);
             false
         }
-    }
+    };
+    release_prompt(app);
+    approved
+}
+
+/// Make a confirmation impossible to miss. Signing usually happens while
+/// Clavix sits in the tray or behind other windows, and a prompt nobody
+/// sees just times out.
+///
+/// A plain `show` + `set_focus` is not enough: GNOME's focus-stealing
+/// prevention leaves the window buried (see `tray::raise_main_window`).
+/// So: the tray's raise dance, the window kept above the others while any
+/// confirmation is pending, and the platform's attention request (urgency
+/// hint on Linux, taskbar flash on Windows, dock bounce on macOS) in case
+/// the window manager refuses to raise it at all. Always-on-top has no
+/// effect under Wayland; the attention request still applies.
+fn surface_prompt(app: &AppHandle) {
+    super::tray::raise_main_window_pinned(app, |app| {
+        let pending = !app.state::<AppState>().ssh_confirms.lock().is_empty();
+        if pending {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.request_user_attention(Some(UserAttentionType::Critical));
+            }
+        }
+        pending
+    });
+}
+
+/// Undo `surface_prompt` once no confirmation is pending any more. Runs
+/// on the main thread, after any raise already queued there, and checks
+/// the pending set at that moment: a prompt that arrived since keeps the
+/// window pinned.
+fn release_prompt(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if !handle.state::<AppState>().ssh_confirms.lock().is_empty() {
+            return;
+        }
+        if let Some(win) = handle.get_webview_window("main") {
+            let _ = win.set_always_on_top(false);
+            let _ = win.request_user_attention(None);
+        }
+    });
 }
 
 /// Resolve a pending signature confirmation. Called by the dialog with

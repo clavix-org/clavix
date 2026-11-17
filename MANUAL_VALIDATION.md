@@ -153,6 +153,15 @@ button.
   signatures in flight (`git ls-remote` on a repo with submodules, or
   two `ssh` calls at once): the second prompt opens with focus on
   *Autoriser* too, not on the dialog frame.
+- [ ] **Consent prompt behind other windows** — with a confirming sign
+  policy, put Clavix behind several other windows (and once in the
+  tray), keep typing in a terminal, then trigger a signature from it.
+  Clavix comes to the front and stays above the other windows until
+  the prompt is answered or times out; its taskbar entry asks for
+  attention (urgency hint, flash or dock bounce) where the window
+  manager refuses to raise it. Once answered, Clavix is an ordinary
+  window again (no longer on top). Under Wayland only the attention
+  request is expected.
 - [ ] **Held Entrée does not chain approvals** — same two-signature
   setup, but hold Entrée down through both prompts (keyboard
   autorepeat). The second prompt must still be waiting when you let
