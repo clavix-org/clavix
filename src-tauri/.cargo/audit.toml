@@ -84,6 +84,14 @@ ignore = [
   "RUSTSEC-2026-0371", # zbus_names
   "RUSTSEC-2026-0372", # zvariant_derive
 
+  # -- unmaintained: chrono ------------------------------------------------
+  # Declared unmaintained upstream (chronotope/chrono#1768), all versions,
+  # no patched release. It reaches us only through keepass 0.17 (KeePass
+  # .kdbx import, `commands/import.rs`), which uses it to parse entry
+  # timestamps; our own code does not depend on chrono. Date arithmetic,
+  # no known defect. Drop this the day keepass moves to jiff or time.
+  "RUSTSEC-2026-0543", # chrono
+
   # -- unsound -------------------------------------------------------------
   # `!Send` tags crossing a thread boundary via StackSlot. Transitive under
   # the async runtime; we never construct the affected StackSlot ourselves.
