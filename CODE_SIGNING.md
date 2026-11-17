@@ -26,8 +26,9 @@ Third-party binaries are not signed with this certificate. Clavix ships
 none: every Windows binary in the bundle is compiled from the sources in
 this repository and its locked Rust and npm dependencies.
 
-Every release bundle, on every platform, also carries a Sigstore build
-provenance attestation, which you can check with:
+The macOS bundles are signed separately with an Apple Developer ID and
+notarized by Apple. Every release bundle, on every platform, also carries
+a Sigstore build provenance attestation, which you can check with:
 
 ```bash
 gh attestation verify <file> --repo clavix-org/clavix
