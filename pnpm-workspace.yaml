@@ -149,6 +149,18 @@ auditConfig:
     # devDependency only, never attacker input, nothing in the shipped app.
     # Drop it once vite-plugin-svelte leaves deepmerge or a 4.3.2 ships.
     - GHSA-gcqx-w48m-w2h4
+    # picomatch <= 4.0.7 (high) — ReDoS through single-branch repeated
+    # extglobs. Surfaced in the audit on 2026-11-17 (master was green that
+    # morning). There is no fix to take: the advisory lists no patched
+    # version, 4.0.7 is the latest release, and the upstream fix
+    # (micromatch/picomatch PR 194) is still unmerged, so neither
+    # `pnpm update` nor an override can clear it. Reached through some 79
+    # dev/build-time paths (vite > tinyglobby > fdir, @inlang/paraglide-js >
+    # unplugin, svelte-check, vitest, ...) — devDependency only, `pnpm audit
+    # --prod` is clean, and the globs matched are our own build and test
+    # patterns, never attacker input. Drop this the day picomatch 4.0.8 ships,
+    # and take it with `pnpm update picomatch`.
+    - GHSA-fc5q-39xc-vjpf
 
 # pnpm 11 turned "ignored build scripts" from a warning into a hard install
 # error, so the answer has to be recorded explicitly or `pnpm install
