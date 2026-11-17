@@ -236,7 +236,7 @@ above, or [CHANGELOG.md](CHANGELOG.md) for what landed in each version.
   Vaultwarden API is still returned as-is).
 - 📦 **Flathub** submission (the [Flatpak manifest](#flatpak) is in the
   repository), with start-at-login through the Background portal.
-- ✅ **Code signing** for macOS and Windows builds.
+- ✅ **Code signing** for Windows builds (macOS is signed and notarized).
 - 🗄️ **KDBX** (direct native KeePass file) import.
 
 ### Out of scope (for now)
@@ -541,8 +541,9 @@ clavix/
   tagged commit. Check a download with
   `gh attestation verify <file> --repo clavix-org/clavix`. It proves
   where the binary came from, not that the code is free of bugs, and it
-  is not OS code signing: macOS Gatekeeper and Windows SmartScreen still
-  warn on first launch.
+  is not OS code signing. macOS builds are also signed with a Developer ID
+  and notarized by Apple, so Gatekeeper opens them without a warning;
+  Windows SmartScreen still warns on first launch.
 - Security review notes live in [SECURITY.md](SECURITY.md),
   [THREAT_MODEL.md](THREAT_MODEL.md), [CRYPTO.md](CRYPTO.md), and
   [AUDIT_SCOPE.md](AUDIT_SCOPE.md).
