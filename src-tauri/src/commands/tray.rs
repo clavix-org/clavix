@@ -356,6 +356,18 @@ pub fn set_tray_locale(app: AppHandle, locale: String) -> Result<()> {
 /// where `set_focus()` alone already raises — the deferred dance
 /// is harmless there.
 pub(crate) fn raise_main_window(app: &AppHandle) {
+    raise_main_window_pinned(app, |_| false);
+}
+
+/// `raise_main_window`, except that the always-on-top flag the focus
+/// dance sets is left on when `keep_on_top` says so. The closure runs
+/// on the main thread at the end of the dance, so it reads the state at
+/// that moment, not at the call: a prompt answered in the meantime does
+/// not leave the window pinned. Whoever pins is responsible for unpinning.
+pub(crate) fn raise_main_window_pinned(
+    app: &AppHandle,
+    keep_on_top: impl FnOnce(&AppHandle) -> bool + Send + 'static,
+) {
     // A `--tray` login launch drops the dock icon via the Accessory
     // policy (`set_skip_taskbar` is a no-op on macOS); put it back
     // whenever the window comes up.
@@ -379,10 +391,13 @@ pub(crate) fn raise_main_window(app: &AppHandle) {
         let app_handle = app.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let app_handle_main = app_handle.clone();
             let _ = app_handle.run_on_main_thread(move || {
                 let _ = win.set_always_on_top(true);
                 let _ = win.set_focus();
-                let _ = win.set_always_on_top(false);
+                if !keep_on_top(&app_handle_main) {
+                    let _ = win.set_always_on_top(false);
+                }
             });
         });
     }
