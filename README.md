@@ -543,7 +543,8 @@ clavix/
   where the binary came from, not that the code is free of bugs, and it
   is not OS code signing. macOS builds are also signed with a Developer ID
   and notarized by Apple, so Gatekeeper opens them without a warning;
-  Windows SmartScreen still warns on first launch.
+  Windows SmartScreen still warns on first launch. Windows signing through
+  SignPath Foundation is in progress, see [CODE_SIGNING.md](CODE_SIGNING.md).
 - Security review notes live in [SECURITY.md](SECURITY.md),
   [THREAT_MODEL.md](THREAT_MODEL.md), [CRYPTO.md](CRYPTO.md), and
   [AUDIT_SCOPE.md](AUDIT_SCOPE.md).
