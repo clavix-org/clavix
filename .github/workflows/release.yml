@@ -160,7 +160,7 @@ jobs:
       # APPLE_CERTIFICATE as "present" and fails importing it. Forks and
       # repositories without the secrets keep building unsigned bundles; a
       # half-filled set fails loudly instead of shipping something unsigned
-      # by accident.
+      # by accident. MACOS_SIGNING.md explains how to create the secrets.
       - name: Configure macOS code signing
         id: macos-signing
         if: runner.os == 'macOS'
