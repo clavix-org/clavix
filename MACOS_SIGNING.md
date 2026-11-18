@@ -73,38 +73,56 @@ again from step 1 on this Mac.
 
 ## 4. Gather the other values
 
-- **Signing identity:** the certificate's full name. List it with:
-
-  ```bash
-  security find-identity -v -p codesigning
-  ```
-
-  It looks like `Developer ID Application: Your Name (ABCDE12345)`.
-
-  `security` only exists on macOS. On Linux, read the certificate's
-  subject with OpenSSL, from the `.cer` downloaded in step 2:
-
-  ```bash
-  openssl x509 -inform DER -in developerID_application.cer -noout -subject
-  ```
-
-  or from the `.p12` exported in step 3 (it asks for the export
-  password):
-
-  ```bash
-  openssl pkcs12 -in developer-id.p12 -nokeys -legacy | openssl x509 -noout -subject
-  ```
-
-  OpenSSL 3 needs `-legacy` because Keychain Access exports `.p12` files
-  with older ciphers; drop it on OpenSSL 1.1. The identity is the `CN`
-  value, from `Developer ID Application:` up to the closing parenthesis.
+- **Signing identity:** the certificate's full name, like
+  `Developer ID Application: Your Name (ABCDE12345)`.
 - **Team ID:** the 10 characters in parentheses at the end of the
-  identity, also the `OU` value in the OpenSSL output. It is shown on
-  developer.apple.com under **Membership** too.
+  identity. It is also shown on developer.apple.com under **Membership**.
 - **App-specific password:** on account.apple.com, **Sign-In and
   Security > App-Specific Passwords**, create one named for example
   `Clavix notarization`. Notarization uses it in place of your Apple
   Account password, and you can revoke it on its own.
+
+The commands below extract the identity and the Team ID into shell
+variables, which step 5 sends straight to GitHub. Run the one that
+matches your system, in the same terminal you will use for step 5.
+
+On macOS, from the keychain:
+
+```bash
+identity=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p')
+```
+
+On Linux, `security` does not exist; read the certificate with OpenSSL
+instead, either from the `.cer` downloaded in step 2:
+
+```bash
+identity=$(openssl x509 -inform DER -in developerID_application.cer -noout -subject -nameopt RFC2253 | sed -n 's/.*CN=\(Developer ID Application: .*([A-Z0-9]\{10\})\).*/\1/p')
+```
+
+or from the `.p12` exported in step 3 (it asks for the export
+password; OpenSSL 3 needs `-legacy` because Keychain Access exports
+with older ciphers, drop it on OpenSSL 1.1):
+
+```bash
+identity=$(openssl pkcs12 -in developer-id.p12 -nokeys -legacy | openssl x509 -noout -subject -nameopt RFC2253 | sed -n 's/.*CN=\(Developer ID Application: .*([A-Z0-9]\{10\})\).*/\1/p')
+```
+
+Then, on either system, take the Team ID from the identity and check
+both values:
+
+```bash
+team_id=$(printf '%s' "$identity" | sed -n 's/.*(\([A-Z0-9]\{10\}\))$/\1/p')
+```
+
+```bash
+printf 'identity: %s\nteam id:  %s\n' "$identity" "$team_id"
+```
+
+Each line must show exactly one value. If `identity` is empty, the
+certificate is missing or is not a Developer ID Application one. If it
+spans several lines, the keychain holds more than one Developer ID
+Application certificate: keep the current one and delete or ignore the
+others before going on.
 
 ## 5. Create the repository secrets
 
@@ -131,15 +149,22 @@ characters; `-w0` keeps it on one line:
 base64 -w0 developer-id.p12 | gh secret set APPLE_CERTIFICATE -R clavix-org/clavix
 ```
 
-For the other five, run each command without a value. `gh` then asks for
-it with masked input, so it stays out of your shell history:
+The identity and the Team ID come from the variables of step 4.
+`printf '%s'` sends them without a trailing newline:
 
 ```bash
-gh secret set APPLE_CERTIFICATE_PASSWORD -R clavix-org/clavix
+printf '%s' "$identity" | gh secret set APPLE_SIGNING_IDENTITY -R clavix-org/clavix
 ```
 
 ```bash
-gh secret set APPLE_SIGNING_IDENTITY -R clavix-org/clavix
+printf '%s' "$team_id" | gh secret set APPLE_TEAM_ID -R clavix-org/clavix
+```
+
+For the last three, run each command without a value. `gh` then asks
+for it with masked input, so it stays out of your shell history:
+
+```bash
+gh secret set APPLE_CERTIFICATE_PASSWORD -R clavix-org/clavix
 ```
 
 ```bash
@@ -148,10 +173,6 @@ gh secret set APPLE_ID -R clavix-org/clavix
 
 ```bash
 gh secret set APPLE_PASSWORD -R clavix-org/clavix
-```
-
-```bash
-gh secret set APPLE_TEAM_ID -R clavix-org/clavix
 ```
 
 Then delete the `.p12` file. The certificate and its key stay in your
