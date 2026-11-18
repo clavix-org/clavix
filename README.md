@@ -545,7 +545,8 @@ clavix/
   and notarized by Apple, so Gatekeeper opens them without a warning;
   Windows SmartScreen still warns on first launch. Windows signing through
   SignPath Foundation is in progress, see the
-  [code signing policy](CODE_SIGNING.md).
+  [code signing policy](CODE_SIGNING.md). Maintainers set up the macOS
+  signing secrets with [MACOS_SIGNING.md](MACOS_SIGNING.md).
 - Security review notes live in [SECURITY.md](SECURITY.md),
   [THREAT_MODEL.md](THREAT_MODEL.md), [CRYPTO.md](CRYPTO.md), and
   [AUDIT_SCOPE.md](AUDIT_SCOPE.md).
