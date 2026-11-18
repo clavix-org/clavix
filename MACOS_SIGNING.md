@@ -217,7 +217,7 @@ bundle, and fails the job if any of them fails. On a Mac, after
 downloading the `.dmg`, the same check is:
 
 ```bash
-spctl --assess --type execute --verbose=4 /Applications/clavix.app
+spctl --assess --type execute --verbose=4 /Applications/Clavix.app
 ```
 
 It should print `accepted` and `source=Notarized Developer ID`. Also
