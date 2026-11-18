@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, UserAttentionType};
 use tokio::sync::oneshot;
 
+use crate::phone_approval::{self, ApprovalRequest, BoxFuture, ConfirmDialog, LockProbe};
 use crate::ssh_agent::{self, SignGuard, SignPolicy, SignRequest};
 use crate::state::AppState;
 use clavix_core::crypto::decrypt_name;
@@ -30,6 +31,33 @@ pub struct ConfirmRequest {
     /// outermost first; the last one is the destination. Empty when the
     /// client sent no binding (OpenSSH < 8.9, git signing, PuTTY).
     pub hops: Vec<ConfirmHop>,
+    /// How long the dialog waits before denying: 30 s, or 90 s when the
+    /// phone is asked too.
+    pub timeout_ms: u64,
+    /// The same request was sent to the paired phone; the first answer
+    /// wins.
+    pub phone_asked: bool,
+}
+
+/// Emitted when a confirmation was answered elsewhere (on the phone), so
+/// the dialog closes or drops it from its queue.
+pub const EVENT_CONFIRM_RESOLVED: &str = "ssh-agent-confirm-resolved";
+
+/// How long the dialog alone waits before denying.
+const DIALOG_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// "Ask the phone too" settings, a per-device preference kept by the
+/// front end next to the confirmation policy and pushed here with
+/// `set_phone_approval_options`. Read at each confirmation, so a change
+/// applies without restarting the agent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PhoneApprovalOptions {
+    pub enabled: bool,
+    /// Seconds the dialog is up alone before the phone is asked too;
+    /// 0 asks both at once. Capped at `phone_approval::MAX_DELAY`.
+    pub delay_s: u32,
 }
 
 /// One verified session binding, ready for display.
@@ -168,17 +196,24 @@ fn parse_sign_policy(policy: &str) -> SignPolicy {
     }
 }
 
+fn next_confirm_id(state: &AppState) -> u64 {
+    let mut seq = state.ssh_confirm_seq.lock();
+    *seq = seq.wrapping_add(1);
+    *seq
+}
+
 /// Ask the user (via the confirmation dialog) to approve one signature.
 /// Runs inside the agent task; parks a `oneshot` in `AppState`, surfaces
 /// the window, emits the request, and waits — denying on timeout so a
 /// missed prompt can't hang an `ssh`/`git` invocation forever.
-async fn request_confirmation(app: &AppHandle, req: SignRequest) -> bool {
+async fn request_confirmation(
+    app: &AppHandle,
+    id: u64,
+    req: &SignRequest,
+    timeout: Duration,
+    phone_asked: bool,
+) -> bool {
     let state = app.state::<AppState>();
-    let id = {
-        let mut seq = state.ssh_confirm_seq.lock();
-        *seq = seq.wrapping_add(1);
-        *seq
-    };
     let (tx, rx) = oneshot::channel();
     state.ssh_confirms.lock().insert(id, tx);
 
@@ -186,19 +221,21 @@ async fn request_confirmation(app: &AppHandle, req: SignRequest) -> bool {
 
     let payload = ConfirmRequest {
         id,
-        comment: req.key.comment,
-        algorithm: req.key.algorithm,
-        fingerprint: req.key.fingerprint,
+        comment: req.key.comment.clone(),
+        algorithm: req.key.algorithm.clone(),
+        fingerprint: req.key.fingerprint.clone(),
         caller_name: req.caller.as_ref().and_then(|c| c.name.clone()),
         caller_pid: req.caller.as_ref().map(|c| c.pid),
         hops: confirm_hops(&req.hops),
+        timeout_ms: timeout.as_millis() as u64,
+        phone_asked,
     };
     if app.emit("ssh-agent-confirm", &payload).is_err() {
         state.ssh_confirms.lock().remove(&id);
         return false;
     }
 
-    let approved = match tokio::time::timeout(Duration::from_secs(30), rx).await {
+    let approved = match tokio::time::timeout(timeout, rx).await {
         Ok(Ok(approved)) => approved,
         // Timed out, or the sender was dropped — deny and clean up.
         _ => {
@@ -248,6 +285,92 @@ fn release_prompt(app: &AppHandle) {
             let _ = win.request_user_attention(None);
         }
     });
+}
+
+/// The dialog side of one request raced against the phone.
+struct DialogPrompt {
+    app: AppHandle,
+    id: u64,
+    req: SignRequest,
+}
+
+impl ConfirmDialog for DialogPrompt {
+    fn open(&self, timeout: Duration, phone_asked: bool) -> BoxFuture<bool> {
+        let (app, id, req) = (self.app.clone(), self.id, self.req.clone());
+        Box::pin(async move { request_confirmation(&app, id, &req, timeout, phone_asked).await })
+    }
+
+    fn close(&self) {
+        let state = self.app.state::<AppState>();
+        // Dropping the sender ends the parked `request_confirmation`
+        // (which nobody awaits any more) and makes a late click a no-op.
+        let was_pending = state.ssh_confirms.lock().remove(&self.id).is_some();
+        if was_pending {
+            let _ = self.app.emit(EVENT_CONFIRM_RESOLVED, self.id);
+        }
+        // The parked `request_confirmation` is dropped, so its own
+        // `release_prompt` never runs: unpin the window here.
+        release_prompt(&self.app);
+    }
+}
+
+/// A short name for this machine, shown on the phone ("from Clavix
+/// desktop « name »"). Unverified by the phone, like the caller.
+fn machine_label() -> String {
+    let from_env = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .ok();
+    #[cfg(unix)]
+    let from_env = from_env.or_else(|| {
+        std::fs::read_to_string("/etc/hostname")
+            .ok()
+            .map(|s| s.trim().to_string())
+    });
+    from_env
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Clavix desktop".into())
+}
+
+/// Host key fingerprint → `known_hosts` names, for the phone's hints.
+fn phone_hints(hops: &[ssh_agent::HostHop]) -> std::collections::BTreeMap<String, String> {
+    confirm_hops(hops)
+        .into_iter()
+        .filter_map(|h| h.host.map(|name| (h.fingerprint, name)))
+        .collect()
+}
+
+/// Confirm one signature: the dialog alone, or the dialog raced against
+/// the paired phone when the user turned that on and the phone can check
+/// this request on its own.
+async fn confirm_signature(app: AppHandle, req: SignRequest) -> bool {
+    let state = app.state::<AppState>();
+    let id = next_confirm_id(&state);
+    let phone = *state.phone_options.lock();
+    let approver = state.phone_approver.lock().clone();
+    if !(phone.enabled && approver.is_paired() && req.phone_eligible()) {
+        return request_confirmation(&app, id, &req, DIALOG_TIMEOUT, false).await;
+    }
+    let approval = ApprovalRequest::from_sign_request(&req, machine_label(), phone_hints(&req.hops));
+    let dialog = DialogPrompt { app, id, req };
+    let probe: LockProbe = Arc::new(|| Box::pin(crate::screen_lock::probe()));
+    phone_approval::race(
+        approval,
+        approver,
+        &dialog,
+        Duration::from_secs(phone.delay_s.into()),
+        probe,
+    )
+    .await
+}
+
+/// Apply the "ask the phone too" settings.
+#[tauri::command]
+pub fn set_phone_approval_options(
+    state: State<'_, AppState>,
+    options: PhoneApprovalOptions,
+) -> Result<()> {
+    *state.phone_options.lock() = options;
+    Ok(())
 }
 
 /// Resolve a pending signature confirmation. Called by the dialog with
@@ -306,7 +429,7 @@ pub struct SshAgentStatus {
 /// stop prompt — it is what closes the *UI side* of a prompt that is
 /// about to become unreachable, instead of leaving the dialog waiting
 /// for its own timeout.
-fn deny_pending_confirmations(state: &AppState) {
+pub(crate) fn deny_pending_confirmations(state: &AppState) {
     let pending = std::mem::take(&mut *state.ssh_confirms.lock());
     for (_, tx) in pending {
         let _ = tx.send(false);
@@ -433,8 +556,7 @@ pub async fn start_ssh_agent(
     } else {
         let app = app.clone();
         Some(Arc::new(move |req: SignRequest| {
-            let app = app.clone();
-            Box::pin(async move { request_confirmation(&app, req).await })
+            Box::pin(confirm_signature(app.clone(), req))
                 as std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
         }))
     };

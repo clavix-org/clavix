@@ -11,6 +11,7 @@ mod dbus;
 #[cfg(target_os = "linux")]
 mod flatpak_instance;
 mod legacy_app_dirs;
+mod phone_approval;
 mod screen_lock;
 // Adapts `AppState` to the engine's session slots — see the module docs.
 pub mod session;
@@ -234,6 +235,7 @@ pub fn run() {
             commands::ssh::stop_ssh_agent,
             commands::ssh::ssh_agent_status,
             commands::ssh::respond_ssh_agent_confirm,
+            commands::ssh::set_phone_approval_options,
             commands::ssh::decrypt_ssh_private_key,
             commands::ssh::generate_ssh_key,
             commands::ssh::ssh_auth_sock,

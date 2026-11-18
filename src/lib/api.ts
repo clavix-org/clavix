@@ -11,6 +11,7 @@ import type {
   LoginResult,
   PasswordHistoryEntry,
   PasswordStrength,
+  PhoneApprovalOptions,
   SessionOrigin,
   SshAgentStatus,
   StoredAccount,
@@ -251,6 +252,8 @@ export const api = {
 
   startSshAgent: (policy: string) =>
     invoke<SshAgentStatus>("start_ssh_agent", { policy }),
+  setPhoneApprovalOptions: (options: PhoneApprovalOptions) =>
+    invoke<void>("set_phone_approval_options", { options }),
 
   /** Answer a pending agent signature-confirmation prompt. */
   respondSshAgentConfirm: (id: number, approved: boolean) =>

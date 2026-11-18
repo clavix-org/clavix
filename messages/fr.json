@@ -142,6 +142,7 @@
   "ssh_confirm_fingerprint": "Empreinte",
   "ssh_confirm_caller_label": "Demandé par",
   "ssh_confirm_caller_named": "{name} (pid {pid})",
+  "ssh_confirm_phone_asked": "Également demandé sur votre téléphone : la première réponse compte, et un refus d’un côté ou de l’autre refuse.",
   "ssh_confirm_caller_pid": "pid {pid}",
   "ssh_confirm_caller_unknown": "application non identifiée",
   "ssh_confirm_caller_hint": "Le nom du programme est indicatif : il ne prouve pas son identité.",

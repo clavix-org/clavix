@@ -75,6 +75,7 @@ export type { LoginOutcome as LoginResult } from "./generated/LoginOutcome";
 // Small IPC return types, also generated from Rust (totp.rs / update.rs).
 export type { TotpCode } from "./generated/TotpCode";
 export type { UpdateInfo } from "./generated/UpdateInfo";
+export type { PhoneApprovalOptions } from "./generated/PhoneApprovalOptions";
 
 // Auto-lock trigger (state.rs). Generated rather than hand-written for the
 // usual reason: the variant spellings are serde's, not ours — `screenLock`
