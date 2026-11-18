@@ -13,9 +13,11 @@ involve the account's private signing key and credentials.
 
 - A paid Apple Developer Program membership. Only the **Account Holder**
   can create a Developer ID certificate.
-- A Mac with Xcode or Keychain Access.
+- A Mac with Keychain Access for steps 1 to 3, which create and export
+  the private key.
 - The GitHub CLI (`gh`), signed in with admin rights on
-  `clavix-org/clavix`.
+  `clavix-org/clavix`. Steps 4 and 5 also work on Linux, with the
+  variants given there.
 
 ## 1. Create a certificate signing request (CSR)
 
@@ -78,8 +80,27 @@ again from step 1 on this Mac.
   ```
 
   It looks like `Developer ID Application: Your Name (ABCDE12345)`.
+
+  `security` only exists on macOS. On Linux, read the certificate's
+  subject with OpenSSL, from the `.cer` downloaded in step 2:
+
+  ```bash
+  openssl x509 -inform DER -in developerID_application.cer -noout -subject
+  ```
+
+  or from the `.p12` exported in step 3 (it asks for the export
+  password):
+
+  ```bash
+  openssl pkcs12 -in developer-id.p12 -nokeys -legacy | openssl x509 -noout -subject
+  ```
+
+  OpenSSL 3 needs `-legacy` because Keychain Access exports `.p12` files
+  with older ciphers; drop it on OpenSSL 1.1. The identity is the `CN`
+  value, from `Developer ID Application:` up to the closing parenthesis.
 - **Team ID:** the 10 characters in parentheses at the end of the
-  identity. It is also shown on developer.apple.com under **Membership**.
+  identity, also the `OU` value in the OpenSSL output. It is shown on
+  developer.apple.com under **Membership** too.
 - **App-specific password:** on account.apple.com, **Sign-In and
   Security > App-Specific Passwords**, create one named for example
   `Clavix notarization`. Notarization uses it in place of your Apple
@@ -101,6 +122,13 @@ file:
 
 ```bash
 base64 -i ~/Desktop/developer-id.p12 | gh secret set APPLE_CERTIFICATE -R clavix-org/clavix
+```
+
+On Linux, GNU `base64` has no `-i` option and wraps its output every 76
+characters; `-w0` keeps it on one line:
+
+```bash
+base64 -w0 developer-id.p12 | gh secret set APPLE_CERTIFICATE -R clavix-org/clavix
 ```
 
 For the other five, run each command without a value. `gh` then asks for
