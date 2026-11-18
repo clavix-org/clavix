@@ -5,6 +5,14 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.3](https://github.com/clavix-org/clavix/compare/v0.33.2...v0.33.3) (2026-11-18)
+
+
+### Bug Fixes
+
+* **macos:** camera entitlement and signing setup guide for notarized builds ([#515](https://github.com/clavix-org/clavix/issues/515)) ([0b7c5c3](https://github.com/clavix-org/clavix/commit/0b7c5c38fe6ff9a16b89c34a6848ac0e6e7fd282))
+* **ssh-agent:** bring the consent prompt to the front and keep it there ([#509](https://github.com/clavix-org/clavix/issues/509)) ([c73a932](https://github.com/clavix-org/clavix/commit/c73a93238bd59c0052697b6748bac5918a667328))
+
 ## [0.33.2](https://github.com/clavix-org/clavix/compare/v0.33.1...v0.33.2) (2026-11-14)
 
 
