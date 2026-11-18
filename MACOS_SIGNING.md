@@ -64,12 +64,26 @@ again from step 1 on this Mac.
 
 ## 3. Export the certificate as a `.p12`
 
-1. In Keychain Access, **My Certificates**, right-click
-   *Developer ID Application: …* and choose **Export**.
+1. In Keychain Access, **My Certificates**, click *Developer ID
+   Application: …* once, so that it is the **only** highlighted line, then
+   right-click it and choose **Export**.
 2. Save it as a `.p12` file (Personal Information Exchange), for example
    `~/Desktop/developer-id.p12`.
 3. Set a strong password when asked. You need it for
    `APPLE_CERTIFICATE_PASSWORD`.
+4. Check that the file holds only that certificate:
+
+   ```bash
+   openssl pkcs12 -in ~/Desktop/developer-id.p12 -nokeys -legacy | grep subject
+   ```
+
+   (drop `-legacy` on LibreSSL, the macOS default, and on OpenSSL 1.1).
+   Every `subject` line must name `Developer ID Application`, apart from
+   Apple's intermediate *Developer ID Certification Authority*. Any other
+   signing certificate in the file, such as *Apple Development*, breaks
+   the release: Tauri signs with the alphabetically first certificate of
+   the `.p12`, not the one named in `APPLE_SIGNING_IDENTITY`. Export again
+   with a single line selected.
 
 ## 4. Gather the other values
 
@@ -237,6 +251,27 @@ then open the failed run in the Actions tab and click **Re-run failed
 jobs**. Only the macOS job runs again, and it adds its bundles to the
 existing release. A re-run uses the workflow file of the tagged commit,
 not the current one, which is why the secret itself has to be fixed.
+
+**"Build and bundle with tauri-action" fails with `certificate from
+APPLE_CERTIFICATE "Apple Development: …" environment variable does not
+match provided identity`.** The `.p12` holds more than one signing
+certificate, usually because two lines were selected in Keychain Access
+at export time, or an older export was sent. Tauri imports the whole
+file and signs with the alphabetically first certificate, and *Apple
+Development* sorts before *Developer ID Application*; it only compares
+that choice with `APPLE_SIGNING_IDENTITY`, it does not use the secret to
+pick. List what the file holds:
+
+```bash
+openssl pkcs12 -in developer-id.p12 -nokeys -legacy | grep subject
+```
+
+Export again with only *Developer ID Application* selected, under a new
+file name so the two exports are not confused, check it with the same
+command, then set `APPLE_CERTIFICATE` again (and
+`APPLE_CERTIFICATE_PASSWORD` if the export password changed) and re-run
+the failed job. The *Apple Development* certificate can stay in your
+keychain; it only must not be in the `.p12`.
 
 **"Configure macOS code signing" fails with `Secret … spans several
 lines`.** That secret has a line break in the middle of its value. Set it
