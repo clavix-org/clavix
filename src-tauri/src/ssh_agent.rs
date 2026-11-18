@@ -129,18 +129,47 @@ mod proto {
         pub forwarded: bool,
         /// Exchange hash of the bound session.
         pub session_id: Vec<u8>,
+        /// The host key's signature over `session_id`, as received and
+        /// verified. Kept so a paired phone can verify the binding again
+        /// on its own instead of trusting this agent's word for it.
+        pub signature: Vec<u8>,
     }
 
     /// What the user is being asked to approve: the key, plus whoever asked.
     #[derive(Debug, Clone)]
     pub struct SignRequest {
         pub key: KeyInfo,
+        /// SSH wire-format public key blob of the key that would sign.
+        pub key_blob: Vec<u8>,
+        /// The exact bytes that would be signed.
+        pub data: Vec<u8>,
+        /// Agent sign-request flags (RSA hash selection).
+        pub flags: u32,
         pub caller: Option<CallerInfo>,
         /// Session bindings of the requesting connection, outermost first:
         /// `[host1 (forwarded), host2 (auth)]` means "authenticate to
         /// host2 from host1, through the agent forwarded to host1". Empty
         /// for clients that don't bind (OpenSSH < 8.9, git signing, PuTTY).
         pub hops: Vec<HostHop>,
+    }
+
+    impl SignRequest {
+        /// Whether a paired phone can check this request on its own: an
+        /// SSH user-auth request on a connection bound for authentication,
+        /// for that very session (`handle_sign` already enforced the
+        /// match). Anything else — git `SSHSIG`, clients that don't bind,
+        /// PuTTY — carries nothing the phone could verify, so it gets the
+        /// local dialog only.
+        pub fn phone_eligible(&self) -> bool {
+            let Some((sid, host_key)) = parse_userauth_request(&self.data) else {
+                return false;
+            };
+            let Some(last) = self.hops.last().filter(|h| !h.forwarded) else {
+                return false;
+            };
+            sid == last.session_id.as_slice()
+                && host_key.is_none_or(|hk| hk == last.key_blob.as_slice())
+        }
     }
 
     /// Per-connection agent state. `session-bind` is scoped to the
@@ -230,34 +259,30 @@ mod proto {
         /// Decide whether a signature with `key` may proceed. Awaits the
         /// user only when the policy requires it; the caller must NOT hold
         /// the key-store lock across this call (it can block on a human).
-        async fn authorize(
-            &self,
-            key: &KeyInfo,
-            caller: Option<&CallerInfo>,
-            hops: &[HostHop],
-        ) -> bool {
+        async fn authorize(&self, req: SignRequest) -> bool {
             match self.policy {
                 SignPolicy::Never => true,
-                SignPolicy::Always => self.ask(key, caller, hops).await,
+                SignPolicy::Always => self.ask(req).await,
                 SignPolicy::PerSession => {
                     // Keyed on the fingerprint alone, deliberately: the
                     // documented contract is "ask once per key per agent
                     // run". Keying on (key, caller) would re-prompt for
                     // every new `ssh` process, which is the behaviour
                     // `Always` already provides.
-                    if self.approved.lock().await.contains(&key.fingerprint) {
+                    let fingerprint = req.key.fingerprint.clone();
+                    if self.approved.lock().await.contains(&fingerprint) {
                         return true;
                     }
-                    let ok = self.ask(key, caller, hops).await;
+                    let ok = self.ask(req).await;
                     if ok {
-                        self.approved.lock().await.insert(key.fingerprint.clone());
+                        self.approved.lock().await.insert(fingerprint);
                     }
                     ok
                 }
             }
         }
 
-        async fn ask(&self, key: &KeyInfo, caller: Option<&CallerInfo>, hops: &[HostHop]) -> bool {
+        async fn ask(&self, req: SignRequest) -> bool {
             use std::sync::atomic::Ordering;
 
             // A confirming policy with no callback wired can't be
@@ -268,11 +293,7 @@ mod proto {
             if self.cancelled.load(Ordering::SeqCst) {
                 return false;
             }
-            let answer = confirm(SignRequest {
-                key: key.clone(),
-                caller: caller.cloned(),
-                hops: hops.to_vec(),
-            });
+            let answer = confirm(req);
             // Register the cancellation waiter *before* the second flag
             // check (`enable` closes the create-vs-notify race), so a
             // `cancel()` landing between the two loads still wins.
@@ -459,6 +480,7 @@ mod proto {
             fingerprint: host_key.fingerprint(HashAlg::Sha256).to_string(),
             forwarded,
             session_id: session_id.to_vec(),
+            signature: sig_blob.to_vec(),
         });
         Some(())
     }
@@ -584,7 +606,15 @@ mod proto {
             KeyInfo::from(k)
         };
 
-        if !guard.authorize(&key_info, caller, &conn.hops).await {
+        let request = SignRequest {
+            key: key_info,
+            key_blob: key_blob.to_vec(),
+            data: data.to_vec(),
+            flags,
+            caller: caller.cloned(),
+            hops: conn.hops.clone(),
+        };
+        if !guard.authorize(request).await {
             return vec![SSH_AGENT_FAILURE];
         }
 
@@ -789,6 +819,17 @@ mod proto {
             }
         }
 
+        fn req_for(key: &KeyInfo) -> SignRequest {
+            SignRequest {
+                key: key.clone(),
+                key_blob: Vec::new(),
+                data: Vec::new(),
+                flags: 0,
+                caller: None,
+                hops: Vec::new(),
+            }
+        }
+
         fn counting_confirm(answer: bool, calls: Arc<Mutex<u32>>) -> ConfirmFn {
             Arc::new(move |_req: SignRequest| {
                 let calls = calls.clone();
@@ -807,7 +848,7 @@ mod proto {
                 SignPolicy::Never,
                 Some(counting_confirm(false, calls.clone())),
             );
-            assert!(rt.block_on(g.authorize(&dummy_key("SHA256:a"), None, &[])));
+            assert!(rt.block_on(g.authorize(req_for(&dummy_key("SHA256:a")))));
             assert_eq!(rt.block_on(async { *calls.lock().await }), 0);
         }
 
@@ -820,8 +861,8 @@ mod proto {
                 Some(counting_confirm(true, calls.clone())),
             );
             let k = dummy_key("SHA256:a");
-            assert!(rt.block_on(g.authorize(&k, None, &[])));
-            assert!(rt.block_on(g.authorize(&k, None, &[])));
+            assert!(rt.block_on(g.authorize(req_for(&k))));
+            assert!(rt.block_on(g.authorize(req_for(&k))));
             assert_eq!(rt.block_on(async { *calls.lock().await }), 2);
         }
 
@@ -830,7 +871,7 @@ mod proto {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let calls = Arc::new(Mutex::new(0u32));
             let g = SignGuard::new(SignPolicy::Always, Some(counting_confirm(false, calls)));
-            assert!(!rt.block_on(g.authorize(&dummy_key("SHA256:a"), None, &[])));
+            assert!(!rt.block_on(g.authorize(req_for(&dummy_key("SHA256:a")))));
         }
 
         #[test]
@@ -843,9 +884,9 @@ mod proto {
             );
             let a = dummy_key("SHA256:a");
             let b = dummy_key("SHA256:b");
-            assert!(rt.block_on(g.authorize(&a, None, &[])));
-            assert!(rt.block_on(g.authorize(&a, None, &[]))); // remembered — no second ask
-            assert!(rt.block_on(g.authorize(&b, None, &[]))); // different key — asks again
+            assert!(rt.block_on(g.authorize(req_for(&a))));
+            assert!(rt.block_on(g.authorize(req_for(&a)))); // remembered — no second ask
+            assert!(rt.block_on(g.authorize(req_for(&b)))); // different key — asks again
             assert_eq!(rt.block_on(async { *calls.lock().await }), 2);
         }
 
@@ -858,8 +899,8 @@ mod proto {
                 Some(counting_confirm(false, calls.clone())),
             );
             let a = dummy_key("SHA256:a");
-            assert!(!rt.block_on(g.authorize(&a, None, &[])));
-            assert!(!rt.block_on(g.authorize(&a, None, &[])));
+            assert!(!rt.block_on(g.authorize(req_for(&a))));
+            assert!(!rt.block_on(g.authorize(req_for(&a))));
             assert_eq!(rt.block_on(async { *calls.lock().await }), 2); // re-asked
         }
 
@@ -867,7 +908,7 @@ mod proto {
         fn authorize_confirming_policy_without_callback_denies() {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let g = SignGuard::new(SignPolicy::Always, None);
-            assert!(!rt.block_on(g.authorize(&dummy_key("SHA256:a"), None, &[])));
+            assert!(!rt.block_on(g.authorize(req_for(&dummy_key("SHA256:a")))));
         }
 
         /// RFC 8032 §7.1 "TEST 2" Ed25519 vector. Pins the two things a
@@ -1310,8 +1351,11 @@ mod proto {
         fn confirmation_receives_the_bindings() {
             let seen: Arc<std::sync::Mutex<Vec<HostHop>>> = Arc::default();
             let seen2 = seen.clone();
+            let seen_req: Arc<std::sync::Mutex<Option<SignRequest>>> = Arc::default();
+            let seen_req2 = seen_req.clone();
             let confirm: ConfirmFn = Arc::new(move |req: SignRequest| {
                 *seen2.lock().unwrap() = req.hops.clone();
+                *seen_req2.lock().unwrap() = Some(req);
                 Box::pin(async { true })
             });
             let guard = SignGuard::new(SignPolicy::Always, Some(confirm));
@@ -1330,6 +1374,37 @@ mod proto {
                 .block_on(handle_sign(&keys, &guard, &payload, None, &conn));
             assert_eq!(out[0], SSH_AGENT_SIGN_RESPONSE);
             assert_eq!(*seen.lock().unwrap(), conn.hops);
+
+            // Everything a phone needs to re-verify the request on its own.
+            let req = seen_req.lock().unwrap().take().unwrap();
+            assert_eq!(req.key_blob, blob);
+            assert_eq!(req.data, userauth(b"sid-d", None));
+            assert!(req.hops.iter().all(|h| !h.signature.is_empty()));
+            assert!(req.phone_eligible());
+        }
+
+        #[test]
+        fn phone_eligible_only_for_a_bound_userauth_request() {
+            let (jump, dest) = (HostKey::new(1), HostKey::new(2));
+            let mut auth = ConnState::default();
+            bind(&mut auth, &dest, b"sid-d", false);
+            let mut fwd_only = ConnState::default();
+            bind(&mut fwd_only, &jump, b"sid-j", true);
+            let req = |data: Vec<u8>, hops: &[HostHop]| SignRequest {
+                hops: hops.to_vec(),
+                data,
+                ..req_for(&dummy_key("SHA256:a"))
+            };
+
+            assert!(req(userauth(b"sid-d", None), &auth.hops).phone_eligible());
+            // git commit signing: not a user-auth request.
+            assert!(!req(b"SSHSIG-ish data".to_vec(), &auth.hops).phone_eligible());
+            // a client that doesn't bind.
+            assert!(!req(userauth(b"sid-d", None), &[]).phone_eligible());
+            // only a forwarding bind: the destination is unknown.
+            assert!(!req(userauth(b"sid-j", None), &fwd_only.hops).phone_eligible());
+            // another session than the bound one.
+            assert!(!req(userauth(b"sid-x", None), &auth.hops).phone_eligible());
         }
     }
 } // mod proto
