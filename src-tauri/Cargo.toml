@@ -32,6 +32,13 @@ default = ["update-check"]
 # `--no-default-features`: their package manager delivers updates, and the
 # binary then contains no update check at all.
 update-check = []
+# Approve SSH-agent confirmations on a paired phone, through a Clavix
+# Approve relay (src/phone_approval.rs, src/phone_relay.rs). Off by
+# default: it needs the `clavix-approve-core` crate, which is not public
+# yet. To build it, add next to the other dependencies
+#   clavix-approve-core = { path = "<clavix-approve checkout>/core", optional = true }
+# and `"dep:clavix-approve-core"` to this list.
+phone-approval = ["dep:qrcode"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -55,6 +62,8 @@ tauri-plugin-window-state = "2"
 clavix-core = { path = "core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Pairing QR code for the phone, rendered as SVG (no network, no JS dep).
+qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 # Generates the TypeScript types the WebView consumes, straight from the
 # Rust definitions, serde attributes included. Hand-written mirrors had
 # silently drifted: `webauthn_challenge` shipped in snake_case while the

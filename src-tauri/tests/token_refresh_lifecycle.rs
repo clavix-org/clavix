@@ -116,6 +116,7 @@ fn persisted_skeleton(
         encrypted_user_key: "2.aGVsbG8=|d29ybGQ=|aGVsbG8=".into(),
         encrypted_private_key: None,
         yubikey_unlock: None,
+        phone_approval: None,
     }
 }
 

@@ -5,6 +5,7 @@ pub mod clipboard;
 pub mod export;
 pub mod import;
 pub mod move_share;
+pub mod phone;
 pub mod ssh;
 pub mod standalone;
 pub mod strength;

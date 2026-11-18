@@ -147,6 +147,7 @@ async fn lock_now(app: &AppHandle, reason: &str) {
     // prompts first, so neither a dialog nor a phone request outlives the
     // keys it was about.
     crate::commands::ssh::deny_pending_confirmations(&state);
+    crate::commands::phone::unload_paired_phone(&state);
     if let Some(handle) = agent {
         handle.stop().await;
     }

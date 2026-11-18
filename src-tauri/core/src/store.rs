@@ -35,6 +35,12 @@ pub struct PersistedSession {
     /// byte-identical until the user opts in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub yubikey_unlock: Option<YubikeyUnlockBlock>,
+    /// Optional phone pairing for approving SSH-agent signatures: the
+    /// Clavix Approve channel (relay, bearer token, channel keys, paired
+    /// devices) as JSON, encrypted with the user key — usable only while
+    /// the vault is unlocked, per device, never sent to the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phone_approval: Option<String>,
 }
 
 /// On-disk material that lets a FIDO2 token release the cached user key

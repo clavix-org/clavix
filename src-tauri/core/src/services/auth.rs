@@ -319,6 +319,15 @@ pub fn persist_session(
         // previous user key. The user re-enrols from Préférences
         // after this if they want the touch shortcut back.
         yubikey_unlock: None,
+        // A phone pairing is not tied to a wrap of the user key, only
+        // encrypted with it: keep it across a fresh login to the same
+        // account. Were the user key rotated, it would fail to decrypt
+        // and read as "not paired".
+        phone_approval: store::load_session()
+            .ok()
+            .flatten()
+            .filter(|old| old.server_url == server_url && old.email == email)
+            .and_then(|old| old.phone_approval),
     };
     store::save_session(&persisted)
 }
@@ -353,6 +362,7 @@ mod tests {
             encrypted_user_key: String::new(),
             encrypted_private_key: None,
             yubikey_unlock: None,
+            phone_approval: None,
         }
     }
 

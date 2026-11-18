@@ -370,6 +370,8 @@ pub fn set_phone_approval_options(
     options: PhoneApprovalOptions,
 ) -> Result<()> {
     *state.phone_options.lock() = options;
+    // Called on every unlock: the moment the stored pairing can be read.
+    crate::commands::phone::load_paired_phone(&state);
     Ok(())
 }
 
@@ -455,6 +457,8 @@ pub(crate) fn stop_agent_sync(state: &AppState) {
     // raised it is exactly the state this exists to prevent, so it must
     // not depend on the slot still holding a handle.
     deny_pending_confirmations(state);
+    // The pairing's channel keys go with the vault keys.
+    crate::commands::phone::unload_paired_phone(state);
     if let Some(h) = handle {
         h.stop_sync();
     }
