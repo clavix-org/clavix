@@ -136,18 +136,26 @@ others before going on.
 | `APPLE_TEAM_ID` | The Team ID from step 4 |
 
 The certificate is encoded and sent in one pipe, with no intermediate
-file:
+file. The command depends on the system, because the two `base64`
+tools differ.
+
+On macOS:
 
 ```bash
 base64 -i ~/Desktop/developer-id.p12 | gh secret set APPLE_CERTIFICATE -R clavix-org/clavix
 ```
 
-On Linux, GNU `base64` has no `-i` option and wraps its output every 76
-characters; `-w0` keeps it on one line:
+On Linux:
 
 ```bash
 base64 -w0 developer-id.p12 | gh secret set APPLE_CERTIFICATE -R clavix-org/clavix
 ```
+
+Do not drop `-w0` on Linux: GNU `base64` has no `-i` option and, without
+`-w0`, cuts its output into lines of 76 characters. The release workflow
+now removes those line breaks itself, but releases tagged before that
+change fail on a wrapped certificate (see
+[Troubleshooting](#troubleshooting)).
 
 The identity and the Team ID come from the variables of step 4.
 `printf '%s'` sends them without a trailing newline:
@@ -212,3 +220,28 @@ entitlement (`com.apple.security.device.camera`, in
 - If the membership lapses, notarization stops working and the release
   job fails at the signing step. Renewing the membership is enough; the
   certificate does not need to be recreated.
+
+## Troubleshooting
+
+**"Configure macOS code signing" fails with `Unable to process file
+command 'env' successfully` and `Invalid format '***'`.** A secret holds
+several lines. It is almost always `APPLE_CERTIFICATE`, encoded on Linux
+without `-w0`. Releases tagged before the workflow learned to strip those
+line breaks fail this way. Set the secret again on one line:
+
+```bash
+base64 -w0 developer-id.p12 | gh secret set APPLE_CERTIFICATE -R clavix-org/clavix
+```
+
+then open the failed run in the Actions tab and click **Re-run failed
+jobs**. Only the macOS job runs again, and it adds its bundles to the
+existing release. A re-run uses the workflow file of the tagged commit,
+not the current one, which is why the secret itself has to be fixed.
+
+**"Configure macOS code signing" fails with `Secret … spans several
+lines`.** That secret has a line break in the middle of its value. Set it
+again, typing or pasting the value on one line.
+
+**"Configure macOS code signing" fails with `Secret … is missing`.** Some
+of the six secrets are set and others are not. Add the ones the error
+names; see [step 5](#5-create-the-repository-secrets).

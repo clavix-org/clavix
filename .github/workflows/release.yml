@@ -191,8 +191,27 @@ jobs:
             exit 1
           fi
 
+          # Each GITHUB_ENV line is NAME=value, so a value with a newline in it
+          # fails the step with nothing better than "Invalid format '***'".
+          # The certificate is base64, where whitespace carries no data: drop
+          # all of it, which accepts a `base64` output wrapped at 76 columns
+          # (GNU's default). The other secrets only lose trailing newlines; one
+          # with a newline inside is a mistake, and the error names it.
+          APPLE_CERTIFICATE="$(printf '%s' "$APPLE_CERTIFICATE" | tr -d '[:space:]')"
+          bad=0
           for n in "${names[@]}"; do
-            echo "$n=${!n}" >> "$GITHUB_ENV"
+            v="${!n}"
+            v="${v%"${v##*[!$'\r\n']}"}"
+            if [[ "$v" == *$'\n'* || "$v" == *$'\r'* ]]; then
+              echo "::error::Secret $n spans several lines. Set it again as a single line (see MACOS_SIGNING.md)."
+              bad=1
+            fi
+            printf -v "$n" '%s' "$v"
+          done
+          [ "$bad" -eq 0 ] || exit 1
+
+          for n in "${names[@]}"; do
+            printf '%s=%s\n' "$n" "${!n}" >> "$GITHUB_ENV"
           done
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
