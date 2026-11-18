@@ -4,8 +4,15 @@
   import { api } from "./api";
   import { formatError } from "./format";
   import PasswordInput from "./PasswordInput.svelte";
+  import PhoneApprovalSettings from "./PhoneApprovalSettings.svelte";
   import type { SshAgentConfirm, ToolbarAlign, TrayIconStyle } from "./prefs.svelte";
-  import type { AutoLockTrigger, Locale, SshAgentStatus, ThemePref } from "./types";
+  import type {
+    AutoLockTrigger,
+    Locale,
+    PhoneApprovalOptions,
+    SshAgentStatus,
+    ThemePref,
+  } from "./types";
 
   type Props = {
     currentLocale: Locale;
@@ -22,6 +29,8 @@
     autoSyncMinutes: number;
     sshAgentConfirm: SshAgentConfirm;
     sshAgentAutoStart: boolean;
+    phoneApproval: PhoneApprovalOptions;
+    onApplyPhoneApproval: (value: PhoneApprovalOptions) => void;
     blurNotes: boolean;
     onApplyBlurNotes: (value: boolean) => void;
     searchNotes: boolean;
@@ -56,6 +65,8 @@
     autoSyncMinutes,
     sshAgentConfirm,
     sshAgentAutoStart,
+    phoneApproval,
+    onApplyPhoneApproval,
     blurNotes,
     onApplyBlurNotes,
     searchNotes,
@@ -675,6 +686,11 @@
             <p class="hint">{m.settings_ssh_autostart_hint()}</p>
           </dd>
         </dl>
+        <PhoneApprovalSettings
+          options={phoneApproval}
+          confirmPolicy={sshAgentConfirm}
+          onApply={onApplyPhoneApproval}
+        />
       </div>
     {:else}
       <div class="prefs-panel" role="tabpanel" id="prefs-panel-yubikey" aria-labelledby="prefs-tab-yubikey">

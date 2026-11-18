@@ -1301,6 +1301,8 @@
   onApplyToolbarAlign={(v) => prefs.setToolbarAlign(v)}
   onApplyAutoSyncMinutes={(v) => prefs.setAutoSyncMinutes(v)}
   onApplySshAgentConfirm={(v) => prefs.setSshAgentConfirm(v)}
+  phoneApproval={prefs.phoneApproval}
+  onApplyPhoneApproval={(v) => prefs.setPhoneApproval(v)}
   onApplySshAgentAutoStart={(v) => prefs.setSshAgentAutoStart(v)}
   onCopySocketPath={copySshAgentSocket}
   onCopyShellCommand={copyShellCommand}
