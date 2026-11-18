@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged by Tauri into the bundle's Info.plist. macOS terminates an app
+  that opens the camera without a usage description, so the TOTP QR
+  scanner needs this line.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Clavix uses the camera only to scan TOTP QR codes when you ask it to. Images are read on your device and never stored or sent.</string>
+</dict>
+</plist>
