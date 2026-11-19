@@ -419,8 +419,14 @@ mod tests {
         assert!(race(req(), phone.clone(), &dialog, S(0), probe(Some(false))).await);
         assert_eq!(phone.asked_at(), Some(start));
         assert_eq!(dialog.opened_at().unwrap().0, start);
-        assert!(dialog.closed(), "the dialog is withdrawn when the phone wins");
-        assert!(phone.withdrawn().is_empty(), "an answered request needs no withdraw");
+        assert!(
+            dialog.closed(),
+            "the dialog is withdrawn when the phone wins"
+        );
+        assert!(
+            phone.withdrawn().is_empty(),
+            "an answered request needs no withdraw"
+        );
         assert_eq!(Instant::now() - start, S(5));
     }
 
@@ -471,7 +477,11 @@ mod tests {
         let phone = FakePhone::new(PhoneAnswer::Approved, S(15));
         let dialog = FakeDialog::new(None);
         assert!(race(req(), phone.clone(), &dialog, S(30), probe(Some(true))).await);
-        assert_eq!(phone.asked_at(), Some(start), "no delay behind a locked screen");
+        assert_eq!(
+            phone.asked_at(),
+            Some(start),
+            "no delay behind a locked screen"
+        );
         assert_eq!(dialog.opened_at(), None);
     }
 
@@ -497,7 +507,11 @@ mod tests {
         assert!(approved);
         let (opened, timeout) = dialog.opened_at().unwrap();
         assert!(opened >= start + S(9) && opened <= start + S(11));
-        assert_eq!(timeout, PHONE_TIMEOUT - (opened - start), "the dialog gets what is left");
+        assert_eq!(
+            timeout,
+            PHONE_TIMEOUT - (opened - start),
+            "the dialog gets what is left"
+        );
         assert_eq!(phone.withdrawn().len(), 1);
     }
 

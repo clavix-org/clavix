@@ -140,7 +140,11 @@ mod imp {
         if CHANNEL.lock().is_some() {
             return;
         }
-        let Some(enc) = store::load_session().ok().flatten().and_then(|s| s.phone_approval) else {
+        let Some(enc) = store::load_session()
+            .ok()
+            .flatten()
+            .and_then(|s| s.phone_approval)
+        else {
             return;
         };
         let Ok(decrypted) = with_user_key(state, |k| Ok(decrypt_name(&enc, k).ok())) else {
@@ -219,7 +223,9 @@ mod imp {
     pub async fn pair_wait() -> Result<PhonePairCandidate> {
         let (offer, cancel) = {
             let slot = PAIRING.lock();
-            let p = slot.as_ref().ok_or_else(|| relay_error("no pairing in progress"))?;
+            let p = slot
+                .as_ref()
+                .ok_or_else(|| relay_error("no pairing in progress"))?;
             (p.offer.clone(), p.cancel.clone())
         };
         let paired = tokio::select! {
@@ -275,7 +281,9 @@ mod imp {
         let channel = CHANNEL.lock().clone();
         if let Some(c) = &channel {
             if let Err(e) = c.revoke().await {
-                eprintln!("[clavix phone] revoking on the relay failed (forgotten here anyway): {e}");
+                eprintln!(
+                    "[clavix phone] revoking on the relay failed (forgotten here anyway): {e}"
+                );
             }
         }
         save_channel(state, None)?;

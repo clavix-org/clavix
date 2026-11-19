@@ -350,7 +350,8 @@ async fn confirm_signature(app: AppHandle, req: SignRequest) -> bool {
     if !(phone.enabled && approver.is_paired() && req.phone_eligible()) {
         return request_confirmation(&app, id, &req, DIALOG_TIMEOUT, false).await;
     }
-    let approval = ApprovalRequest::from_sign_request(&req, machine_label(), phone_hints(&req.hops));
+    let approval =
+        ApprovalRequest::from_sign_request(&req, machine_label(), phone_hints(&req.hops));
     let dialog = DialogPrompt { app, id, req };
     let probe: LockProbe = Arc::new(|| Box::pin(crate::screen_lock::probe()));
     phone_approval::race(
