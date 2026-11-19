@@ -332,7 +332,9 @@ fn machine_label() -> String {
 }
 
 /// Host key fingerprint → `known_hosts` names, for the phone's hints.
-fn phone_hints(hops: &[ssh_agent::HostHop]) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn phone_hints(
+    hops: &[ssh_agent::HostHop],
+) -> std::collections::BTreeMap<String, String> {
     confirm_hops(hops)
         .into_iter()
         .filter_map(|h| h.host.map(|name| (h.fingerprint, name)))
@@ -439,8 +441,8 @@ pub(crate) fn deny_pending_confirmations(state: &AppState) {
     }
 }
 
-/// Take the running agent out of `state`, deny every pending confirmation
-/// and stop it.
+/// Take the running agent (and the locked-vault agent, if any) out of
+/// `state`, deny every pending confirmation and stop them.
 ///
 /// Every synchronous teardown path — `auth::lock`, `auth::logout`,
 /// `tray::lock_session` — goes through this instead of taking the handle
@@ -463,6 +465,9 @@ pub(crate) fn stop_agent_sync(state: &AppState) {
     if let Some(h) = handle {
         h.stop_sync();
     }
+    // A locked-vault agent too: logout stops everything, and the lock
+    // paths start it again afterwards (`phone_sign::after_vault_lock`).
+    crate::commands::phone_sign::stop_locked_agent_sync(state);
     // Same reasoning as `stop_ssh_agent`: the skip list describes a load
     // that no longer has a running agent behind it.
     state.ssh_skipped.lock().clear();
@@ -474,6 +479,12 @@ pub async fn start_ssh_agent(
     app: AppHandle,
     policy: String,
 ) -> Result<SshAgentStatus> {
+    // One agent transition at a time on the socket (see `AppState::
+    // agent_transition`); held until the new agent is in its slot.
+    let _transition = state.agent_transition.lock().await;
+    // The locked-vault agent, if the vault was locked until now, goes
+    // first: it holds the socket, and only the phones' keys.
+    crate::commands::phone_sign::stop_locked_agent(&state).await;
     // Stop any previous instance first — simpler than reconciling state.
     let previous = {
         let mut slot = state.ssh_agent.lock();
@@ -598,6 +609,7 @@ pub async fn start_ssh_agent(
 
 #[tauri::command]
 pub async fn stop_ssh_agent(state: State<'_, AppState>) -> Result<()> {
+    let _transition = state.agent_transition.lock().await;
     let handle = {
         let mut slot = state.ssh_agent.lock();
         slot.take()

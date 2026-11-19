@@ -475,11 +475,11 @@ fn lock_session(app: &AppHandle) {
     // `AppHandle`, not the `State<'_, AppState>` shape Tauri's
     // dispatcher would hand us — and we don't need a return value.
     crate::commands::ssh::stop_agent_sync(&state);
-    {
-        let mut guard = state.session.lock();
-        *guard = None;
-    }
+    let was_unlocked = state.session.lock().take().is_some();
     crate::session::clear_pending_two_factor(&state);
+    if was_unlocked {
+        crate::commands::phone_sign::after_vault_lock(app);
+    }
 
     // Tell the renderer the session is gone. Without this the UI
     // would happily keep showing the vault until the next IPC call
