@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * **phone:** say the relay is unreachable instead of "invalid server response" ([#521](https://github.com/clavix-org/clavix/issues/521)) ([17bef8a](https://github.com/clavix-org/clavix/commit/17bef8a4b43692a363298dfa41e34bd74bae4bde))
 * **release:** accept a wrapped APPLE_CERTIFICATE and name bad secrets ([#516](https://github.com/clavix-org/clavix/issues/516)) ([9e68b8e](https://github.com/clavix-org/clavix/commit/9e68b8ecf68cb15a1af8a3889077616dd4edc115))
 
+
+### Security
+
+* **ssh-agent:** locking the vault now ends every agent connection already open, refuses any request on a stopped agent and empties its key store. Before, on Linux and macOS, a connection opened before the lock (for example a forwarded agent in an `ssh -A` session) could keep signing with vault keys after it. Also fixes a race between a lock and the agent's start, ends the phone sign mode on logout, and checks the uid of each agent client. See [GHSA-cc96-3gp9-73xq](https://github.com/clavix-org/clavix/security/advisories/GHSA-cc96-3gp9-73xq). ([efe5b23](https://github.com/clavix-org/clavix/commit/efe5b237a89fbd9db376bc96a8a2a7656c054557))
+
 ## [0.33.3](https://github.com/clavix-org/clavix/compare/v0.33.2...v0.33.3) (2026-11-18)
 
 
