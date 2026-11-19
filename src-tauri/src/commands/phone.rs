@@ -71,6 +71,7 @@ mod imp {
     use super::*;
     use crate::phone_approval::{NoPhone, PhoneApprover};
     use crate::phone_relay::{ApproveChannel, ApproveOffer, PairedDevice, RelayPhone};
+    use clavix_approve_core::relay::RelayError;
     use clavix_core::crypto::{decrypt_name, encrypt_string};
     use clavix_core::store;
 
@@ -80,6 +81,8 @@ mod imp {
     /// A pairing in progress. One at a time.
     struct Pairing {
         offer: Arc<ApproveOffer>,
+        /// The relay the offer is open on, to name it when it goes away.
+        relay: String,
         /// The channel being extended, for a second phone.
         existing: Option<ApproveChannel>,
         candidate: Option<PairedDevice>,
@@ -94,6 +97,27 @@ mod imp {
     fn relay_error(e: impl std::fmt::Display) -> Error {
         Error::InvalidResponse {
             reason: format!("phone relay: {e}"),
+        }
+    }
+
+    /// The error of a call to the relay at `relay`. One that never got an
+    /// answer (DNS, connection refused, TLS, timeout) is reported as the
+    /// relay being unreachable, with its address; anything else is what
+    /// the relay answered.
+    ///
+    /// The pairing calls of `clavix-approve-core` return their errors as
+    /// text, so a transport failure is recognised by how the crate words
+    /// `RelayError::Transport`. The wording is asked from the crate rather
+    /// than copied here, so that a crate update cannot silently undo this.
+    pub(crate) fn relay_call_error(relay: &str, e: impl std::fmt::Display) -> Error {
+        let text = e.to_string();
+        let unreachable = RelayError::Transport(String::new()).to_string();
+        match text.strip_prefix(&unreachable) {
+            Some(cause) => Error::RelayUnreachable {
+                url: relay.to_string(),
+                cause: cause.to_string(),
+            },
+            None => relay_error(text),
         }
     }
 
@@ -198,12 +222,16 @@ mod imp {
     ) -> Result<PhonePairOffer> {
         with_user_key(state, |_| Ok(()))?; // only while unlocked: stored encrypted
         let existing = CHANNEL.lock().clone();
+        let relay = match &existing {
+            Some(c) => c.relay.clone(),
+            None => relay.trim().to_string(),
+        };
         let offer = match &existing {
             // One more phone on the same channel (and relay).
             Some(c) => ApproveOffer::add_device(c).await,
-            None => ApproveOffer::open(relay.trim(), enroll_secret.trim(), label.trim()).await,
+            None => ApproveOffer::open(&relay, enroll_secret.trim(), label.trim()).await,
         }
-        .map_err(relay_error)?;
+        .map_err(|e| relay_call_error(&relay, e))?;
         let link = offer.link();
         let out = PhonePairOffer {
             code: offer.code().to_string(),
@@ -212,6 +240,7 @@ mod imp {
         };
         if let Some(old) = PAIRING.lock().replace(Pairing {
             offer: Arc::new(offer),
+            relay,
             existing,
             candidate: None,
             cancel: Arc::new(Notify::new()),
@@ -222,15 +251,15 @@ mod imp {
     }
 
     pub async fn pair_wait() -> Result<PhonePairCandidate> {
-        let (offer, cancel) = {
+        let (offer, relay, cancel) = {
             let slot = PAIRING.lock();
             let p = slot
                 .as_ref()
                 .ok_or_else(|| relay_error("no pairing in progress"))?;
-            (p.offer.clone(), p.cancel.clone())
+            (p.offer.clone(), p.relay.clone(), p.cancel.clone())
         };
         let paired = tokio::select! {
-            r = offer.wait(PAIR_WAIT) => r.map_err(relay_error)?,
+            r = offer.wait(PAIR_WAIT) => r.map_err(|e| relay_call_error(&relay, e))?,
             _ = cancel.notified() => return Err(relay_error("pairing cancelled")),
         };
         drop(offer);
@@ -291,10 +320,73 @@ mod imp {
         install(state, None);
         Ok(status())
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::phone_relay::ApproveOffer;
+        use clavix_approve_core::requester as rq;
+
+        const RELAY: &str = "https://relay.example";
+
+        #[test]
+        fn a_relay_that_never_answered_is_unreachable_not_an_invalid_response() {
+            // Typed, as the revoke calls return it; inside the requester's
+            // error; and as the text the pairing calls reduce it to.
+            let transport = RelayError::Transport("error sending request".into());
+            let as_text = transport.to_string();
+            let errors: [Box<dyn std::fmt::Display>; 3] = [
+                Box::new(transport.clone()),
+                Box::new(rq::Error::from(transport)),
+                Box::new(rq::Error::from(as_text)),
+            ];
+            for e in errors {
+                match relay_call_error(RELAY, e) {
+                    Error::RelayUnreachable { url, cause } => {
+                        assert_eq!(url, RELAY);
+                        assert_eq!(cause, "error sending request");
+                    }
+                    other => panic!("expected RelayUnreachable, got {other:?}"),
+                }
+            }
+        }
+
+        #[test]
+        fn what_the_relay_answered_is_still_an_invalid_response() {
+            let answers: [Box<dyn std::fmt::Display>; 4] = [
+                Box::new(RelayError::Status(503)),
+                Box::new(RelayError::Protocol("not JSON".into())),
+                Box::new(rq::Error::Revoked),
+                Box::new("nobody entered the pairing code in time"),
+            ];
+            for e in answers {
+                let text = e.to_string();
+                match relay_call_error(RELAY, e) {
+                    Error::InvalidResponse { reason } => assert!(reason.ends_with(&text)),
+                    other => panic!("expected InvalidResponse, got {other:?}"),
+                }
+            }
+        }
+
+        /// Nothing listens on the port: the real crate, the real error.
+        #[tokio::test]
+        async fn pairing_with_a_phone_relay_that_refuses_connections_says_unreachable() {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let relay = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+            drop(listener);
+            let Err(e) = ApproveOffer::open(&relay, "secret", "desk").await else {
+                panic!("a closed port cannot have opened a channel");
+            };
+            assert!(matches!(
+                relay_call_error(&relay, e),
+                Error::RelayUnreachable { url, .. } if url == relay
+            ));
+        }
+    }
 }
 
 #[cfg(feature = "phone-approval")]
-pub(crate) use imp::qr_svg;
+pub(crate) use imp::{qr_svg, relay_call_error};
 
 /// Load the stored pairing (vault just unlocked). No-op without the
 /// feature.

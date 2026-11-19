@@ -18,6 +18,13 @@ pub enum Error {
     #[error("HTTP error {status}: {message}")]
     HttpStatus { status: u16, message: String },
 
+    /// The phone relay never answered: DNS, connection refused, TLS, a
+    /// timeout. Kept apart from `InvalidResponse`, which would tell the
+    /// user the relay said something wrong when it said nothing at all.
+    /// `url` is the relay as configured, the thing to check first.
+    #[error("Phone relay unreachable: {url} ({cause})")]
+    RelayUnreachable { url: String, cause: String },
+
     /// The server answered with an HTML page instead of an API payload:
     /// a reverse proxy or an authentication portal in front of the
     /// server intercepted the request (an expired portal session, an IP
@@ -242,6 +249,18 @@ mod tests {
     }
 
     #[test]
+    fn an_unreachable_relay_has_its_own_code_and_carries_the_url() {
+        let payload = serde_json::to_value(Error::RelayUnreachable {
+            url: "https://relay.example".into(),
+            cause: "error sending request".into(),
+        })
+        .unwrap();
+        assert_eq!(payload["code"], "relay_unreachable");
+        assert_eq!(payload["data"]["url"], "https://relay.example");
+        assert_eq!(payload["data"]["cause"], "error sending request");
+    }
+
+    #[test]
     fn classify_returns_none_for_truly_unknown_strings() {
         assert!(classify_auth_message("Some other server message").is_none());
         assert!(classify_auth_message("").is_none());
@@ -272,6 +291,10 @@ impl Serialize for Error {
             Error::HttpStatus { status, message } => (
                 "http_status",
                 serde_json::json!({ "status": status, "message": message }),
+            ),
+            Error::RelayUnreachable { url, cause } => (
+                "relay_unreachable",
+                serde_json::json!({ "url": url, "cause": cause }),
             ),
             Error::HtmlResponse { status, title } => (
                 "html_response",

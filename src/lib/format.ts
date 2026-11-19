@@ -16,6 +16,8 @@ export function formatError(e: unknown): string {
       return m.err_invalid_response({ reason: str(data.reason) });
     case "http_status":
       return m.err_http_status({ status: str(data.status), message: str(data.message) });
+    case "relay_unreachable":
+      return m.err_relay_unreachable({ url: str(data.url) });
     case "html_response": {
       // A proxy or a login portal answered in place of the server. The
       // Rust side already reduced the page to its <title>, if it had one.
