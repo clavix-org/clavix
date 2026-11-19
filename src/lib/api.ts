@@ -12,6 +12,8 @@ import type {
   PasswordHistoryEntry,
   PasswordStrength,
   PhoneApprovalOptions,
+  PhoneSignConfirmed,
+  PhoneSignStatus,
   PhonePairCandidate,
   PhonePairOffer,
   PhoneStatus,
@@ -264,6 +266,16 @@ export const api = {
   phonePairConfirm: () => invoke<PhoneStatus>("phone_pair_confirm"),
   phonePairCancel: () => invoke<void>("phone_pair_cancel"),
   phoneForget: () => invoke<PhoneStatus>("phone_forget"),
+  phoneSignStatus: () => invoke<PhoneSignStatus>("phone_sign_status"),
+  phoneSignPairStart: (relay: string, enrollSecret: string, label: string) =>
+    invoke<PhonePairOffer>("phone_sign_pair_start", { relay, enrollSecret, label }),
+  phoneSignPairWait: () => invoke<PhonePairCandidate>("phone_sign_pair_wait"),
+  phoneSignPairConfirm: () => invoke<PhoneSignConfirmed>("phone_sign_pair_confirm"),
+  phoneSignPairCancel: () => invoke<void>("phone_sign_pair_cancel"),
+  phoneSignForget: (id: string, localOnly: boolean) =>
+    invoke<PhoneSignStatus>("phone_sign_forget", { id, localOnly }),
+  phoneSignSetUseWhenLocked: (enabled: boolean) =>
+    invoke<PhoneSignStatus>("phone_sign_set_use_when_locked", { enabled }),
 
   /** Answer a pending agent signature-confirmation prompt. */
   respondSshAgentConfirm: (id: number, approved: boolean) =>
