@@ -191,6 +191,18 @@ describe("formatError", () => {
     expect(msg).toContain("403");
     expect(msg).not.toContain("null");
   });
+  it("names the relay that could not be reached, not an invalid response", () => {
+    const msg = formatError({
+      code: "relay_unreachable",
+      message: "Phone relay unreachable: https://relay.example (error sending request)",
+      data: { url: "https://relay.example", cause: "error sending request" },
+    });
+    expect(msg).toContain("https://relay.example");
+    expect(msg).not.toContain("error sending request");
+    expect(msg).not.toBe(
+      formatError({ code: "invalid_response", data: { reason: "https://relay.example" } }),
+    );
+  });
   it("keeps the plain HTTP error for a JSON API error", () => {
     const msg = formatError({
       code: "http_status",

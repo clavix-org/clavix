@@ -106,6 +106,7 @@ pub(crate) mod imp {
     use serde::{Deserialize, Serialize};
     use tokio::sync::Notify;
 
+    use super::super::phone::relay_call_error;
     use super::*;
     use crate::phone_sign_relay::RelayPhoneSigner;
     use crate::ssh_agent::{self, AgentKey, SignGuard, SignPolicy};
@@ -265,7 +266,7 @@ pub(crate) mod imp {
                 offer
                     .open_on_channel(&client, &p.label)
                     .await
-                    .map_err(relay_error)?;
+                    .map_err(|e| relay_call_error(&p.relay, e))?;
                 (offer, client, p.relay.clone(), p.label.clone())
             }
             None => {
@@ -276,7 +277,7 @@ pub(crate) mod imp {
                 offer
                     .open(&client, enroll_secret.trim(), &label)
                     .await
-                    .map_err(relay_error)?;
+                    .map_err(|e| relay_call_error(&relay, e))?;
                 (offer, client, relay, label)
             }
         };
@@ -309,7 +310,9 @@ pub(crate) mod imp {
             (p.offer.clone(), p.client.clone(), p.cancel.clone())
         };
         let paired = tokio::select! {
-            r = offer.wait_for_signer(&client, PAIRING_WINDOW) => r.map_err(relay_error)?,
+            r = offer.wait_for_signer(&client, PAIRING_WINDOW) => {
+                r.map_err(|e| relay_call_error(client.base(), e))?
+            }
             _ = cancel.notified() => return Err(relay_error("pairing cancelled")),
         };
         let out = PhonePairCandidate {
@@ -448,7 +451,12 @@ pub(crate) mod imp {
             let client = RelayClient::new(&pairing.relay).map_err(relay_error)?;
             revoke_device(&client, &pairing.ch, &pairing.agent_token, id)
                 .await
-                .map_err(|e| relay_error(format!("{e}; nothing was changed")))?;
+                .map_err(|e| match relay_call_error(&pairing.relay, e) {
+                    Error::InvalidResponse { reason } => Error::InvalidResponse {
+                        reason: format!("{reason}; nothing was changed"),
+                    },
+                    unreachable => unreachable,
+                })?;
         }
         pairing.signers.remove(i);
         if pairing.signers.is_empty() {
