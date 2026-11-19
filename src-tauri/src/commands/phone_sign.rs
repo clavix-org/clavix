@@ -517,13 +517,55 @@ pub(crate) mod imp {
         }
     }
 
+    /// Logout: forget the pairing here, and hand it back so the caller
+    /// can revoke it on the relay. A pairing in progress is abandoned.
+    /// The files go even when the pairing cannot be read.
+    pub fn remove_for_logout(dir: &Path) -> Option<Pairing> {
+        pair_cancel();
+        let pairing = load_pairing(dir);
+        if let Err(e) = remove_all(dir) {
+            eprintln!("[clavix phone] could not remove the phone pairing at logout: {e}");
+        }
+        pairing
+    }
+
+    /// Logout ends sign mode: the pairing is removed from this machine at
+    /// once, then revoked on the relay in the background (best effort:
+    /// without its token, this machine could not use it anyway).
+    pub fn forget_on_logout() {
+        let Ok(dir) = sign_dir() else {
+            return;
+        };
+        let Some(pairing) = remove_for_logout(&dir) else {
+            return;
+        };
+        tauri::async_runtime::spawn(async move {
+            let outcome = match RelayClient::new(&pairing.relay) {
+                Ok(client) => revoke(&client, &pairing.ch, &pairing.agent_token)
+                    .await
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(e),
+            };
+            if let Err(e) = outcome {
+                eprintln!(
+                    "[clavix phone] pairing removed here at logout, but not revoked on the                      relay: {e}"
+                );
+            }
+        });
+    }
+
     /// Start the locked-vault agent on `socket`, unless the vault is
     /// unlocked, a vault agent is still there, one is already running, or
     /// `keys` has nothing to offer. Idempotent.
+    ///
+    /// `keys` is asked a second time once the agent is in its slot: what
+    /// it reads (the pairing, the switch) can be removed while the agent
+    /// starts, by a logout above all, and whoever removed it looked for an
+    /// agent to stop before this one was there.
     pub async fn ensure_locked_agent_with(
         state: &AppState,
         socket: PathBuf,
-        keys: impl FnOnce() -> Option<Vec<AgentKey>>,
+        keys: impl Fn() -> Option<Vec<AgentKey>>,
     ) {
         let _transition = state.agent_transition.lock().await;
         let busy = state.session.lock().is_some()
@@ -532,14 +574,14 @@ pub(crate) mod imp {
         if busy {
             return;
         }
-        let Some(keys) = keys() else {
+        let Some(offered) = keys() else {
             return;
         };
-        let count = keys.len();
+        let count = offered.len();
         // No local dialog: the vault is locked, there is no window to
         // answer it. The phone is the confirmation, for every signature.
         let guard = SignGuard::new(SignPolicy::Never, None);
-        match ssh_agent::start_agent(socket, keys, guard).await {
+        match ssh_agent::start_agent(socket, offered, guard).await {
             Ok(handle) => {
                 eprintln!(
                     "[clavix agent] vault locked: offering {count} phone key(s) on {}",
@@ -550,8 +592,9 @@ pub(crate) mod imp {
             Err(e) => eprintln!("[clavix agent] could not start the locked-vault agent: {e}"),
         }
         // Unlocked while it was starting (the unlock path found the slot
-        // still empty): it must not outlive the lock.
-        if state.session.lock().is_some() {
+        // still empty), or no longer wanted (logged out, switched off):
+        // it must not outlive either.
+        if state.session.lock().is_some() || keys().is_none() {
             let handle = state.locked_agent.lock().take();
             if let Some(handle) = handle {
                 handle.stop().await;
@@ -871,6 +914,84 @@ pub(crate) mod imp {
             assert!(!socket.exists());
         }
 
+        /// Logout ends sign mode on this machine: nothing is left that
+        /// could bring the agent back at the next launch.
+        #[test]
+        fn logout_removes_the_phone_sign_pairing() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path();
+            assert!(remove_for_logout(dir).is_none(), "nothing paired");
+
+            save_pairing(dir, &sample_state()).unwrap();
+            save_options(
+                dir,
+                Options {
+                    use_when_locked: true,
+                },
+            )
+            .unwrap();
+            assert!(locked_agent_keys(dir).is_some());
+
+            let pairing = remove_for_logout(dir).expect("handed back, to revoke on the relay");
+            assert_eq!(pairing.ch, sample_state().ch);
+            assert!(!dir.join("state.json").exists());
+            assert!(!dir.join(OPTIONS_FILE).exists());
+            assert!(locked_agent_keys(dir).is_none());
+
+            // A pairing that cannot be read is removed all the same.
+            std::fs::write(dir.join("state.json"), b"not json").unwrap();
+            assert!(remove_for_logout(dir).is_none());
+            assert!(!dir.join("state.json").exists());
+        }
+
+        /// What `at_launch` finds after a logout: no agent.
+        #[tokio::test]
+        async fn phone_locked_agent_does_not_come_back_after_logout() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("phone-sign");
+            let socket = tmp.path().join("agent.sock");
+            save_pairing(&dir, &sample_state()).unwrap();
+            save_options(
+                &dir,
+                Options {
+                    use_when_locked: true,
+                },
+            )
+            .unwrap();
+            let state = AppState::default();
+            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            assert!(state.locked_agent.lock().is_some());
+
+            // `auth::logout`.
+            remove_for_logout(&dir);
+            crate::commands::ssh::lock_session_sync(&state);
+            assert!(state.locked_agent.lock().is_none());
+
+            // The next launch.
+            ensure_locked_agent_from(&AppState::default(), socket.clone(), &dir).await;
+            assert!(!socket.exists());
+        }
+
+        /// A logout that lands while the agent starts: it removed the
+        /// pairing and found no agent to stop yet. The agent must notice
+        /// once it is in its slot.
+        #[tokio::test]
+        async fn phone_locked_agent_started_across_a_logout_stops() {
+            let tmp = tempfile::tempdir().unwrap();
+            let socket = tmp.path().join("agent.sock");
+            let state = AppState::default();
+            let asked = std::sync::atomic::AtomicU32::new(0);
+            // Paired when the start read it, gone when it looks again.
+            let keys = || {
+                (asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0)
+                    .then(|| vec![phone_key()])
+            };
+            ensure_locked_agent_with(&state, socket.clone(), keys).await;
+            assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 2);
+            assert!(state.locked_agent.lock().is_none());
+            assert!(!socket.exists());
+        }
+
         #[tokio::test]
         async fn logout_stops_the_phone_locked_agent() {
             let tmp = tempfile::tempdir().unwrap();
@@ -904,6 +1025,13 @@ pub(crate) async fn stop_locked_agent(state: &AppState) {
     if let Some(handle) = handle {
         handle.stop().await;
     }
+}
+
+/// Logout: forget the sign-mode pairing (see `imp::forget_on_logout`). A
+/// no-op without the feature.
+pub(crate) fn forget_on_logout() {
+    #[cfg(feature = "phone-approval")]
+    imp::forget_on_logout();
 }
 
 /// The vault was just locked (not logged out): serve the phones' keys in

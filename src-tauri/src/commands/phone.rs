@@ -358,6 +358,24 @@ mod imp {
         Ok(status())
     }
 
+    /// Logout deletes `session.json`, and the pairing with it: tell the
+    /// relay, in the background, so the phone stops showing this machine.
+    /// Only possible when the vault is unlocked at logout (the pairing is
+    /// encrypted with the user key); otherwise it just expires unused.
+    pub fn revoke_on_logout() {
+        if let Some(p) = PAIRING.lock().take() {
+            p.cancel.notify_waiters();
+        }
+        let Some(channel) = CHANNEL.lock().clone() else {
+            return;
+        };
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = channel.revoke().await {
+                eprintln!("[clavix phone] pairing not revoked on the relay at logout: {e}");
+            }
+        });
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -451,6 +469,13 @@ mod imp {
 
 #[cfg(feature = "phone-approval")]
 pub(crate) use imp::{no_pairing, phone_error, qr_svg, relay_call_error, relay_client};
+
+/// Logout: revoke the approve-mode pairing on the relay, best effort. A
+/// no-op without the feature.
+pub(crate) fn revoke_on_logout() {
+    #[cfg(feature = "phone-approval")]
+    imp::revoke_on_logout();
+}
 
 /// Load the stored pairing (vault just unlocked). No-op without the
 /// feature.

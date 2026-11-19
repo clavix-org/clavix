@@ -142,6 +142,14 @@ pub(crate) fn due(state: &AppState, now: Instant) -> Option<String> {
 /// agent gets the async `stop()` rather than its blocking twin.
 async fn lock_now(app: &AppHandle, reason: &str) {
     let state = app.state::<AppState>();
+    // The session goes first, as in `ssh::lock_session_sync` and for the
+    // same reason: an agent start that is under way must find it gone,
+    // or have its agent taken by the stop below. The stop is awaited
+    // here, which made the window between the two wide.
+    let locked = state.session.lock().take().is_some();
+    if locked {
+        eprintln!("[clavix] session auto-locked: {reason}");
+    }
     let agent = state.ssh_agent.lock().take();
     // Like every other teardown path (`ssh::stop_agent_sync`): close the
     // prompts first, so neither a dialog nor a phone request outlives the
@@ -155,16 +163,6 @@ async fn lock_now(app: &AppHandle, reason: &str) {
     // Threshold reached: also drop any pending 2FA slot so the master key
     // never survives the lock.
     crate::session::clear_pending_two_factor(&state);
-    let locked = {
-        let mut session_guard = state.session.lock();
-        if session_guard.is_some() {
-            *session_guard = None;
-            eprintln!("[clavix] session auto-locked: {reason}");
-            true
-        } else {
-            false
-        }
-    };
     // Mirror the tray "Verrouiller maintenant" path: tell the WebView the
     // session is gone so it leaves the vault view at once. Without this
     // the backend drops the session silently and the UI keeps showing a

@@ -297,10 +297,35 @@ mod proto {
             self.cancel_notify.notify_waiters();
         }
 
+        /// The agent is stopping or has stopped: nothing may be listed or
+        /// signed any more, on any connection, whatever the policy.
+        pub fn is_cancelled(&self) -> bool {
+            self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        /// Resolves once the agent stops (at once if it already has).
+        pub async fn stopped(&self) {
+            // Waiter registered before the flag is read, as in `ask`.
+            let notified = self.cancel_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
+        }
+
         /// Decide whether a signature with `key` may proceed. Awaits the
         /// user only when the policy requires it; the caller must NOT hold
         /// the key-store lock across this call (it can block on a human).
         async fn authorize(&self, req: SignRequest) -> bool {
+            // A stopped agent authorizes nothing. `ask` already refuses,
+            // but `Never` and an already-approved `PerSession` key never
+            // reach it: without this, a connection opened before the vault
+            // locked could go on signing after it.
+            if self.is_cancelled() {
+                return false;
+            }
             match self.policy {
                 SignPolicy::Never => true,
                 SignPolicy::Always => self.ask(req).await,
@@ -446,6 +471,12 @@ mod proto {
         let Some((&msg_type, body)) = msg.split_first() else {
             return vec![SSH_AGENT_FAILURE];
         };
+        // Stopped (the vault locked, the user logged out, the agent was
+        // turned off): a connection that outlived the stop gets nothing,
+        // not even the list of keys.
+        if guard.is_cancelled() {
+            return vec![SSH_AGENT_FAILURE];
+        }
         match msg_type {
             SSH_AGENTC_REQUEST_IDENTITIES => handle_list(keys).await,
             SSH_AGENTC_SIGN_REQUEST => handle_sign(keys, guard, body, caller, conn).await,
@@ -560,7 +591,30 @@ mod proto {
     /// disconnects, answering each with a length-prefixed response. The
     /// transport object (Unix socket, named pipe, …) is generic — framing
     /// and message handling are identical for every client.
+    ///
+    /// The connection ends when the agent stops: a client that connected
+    /// while the vault was unlocked (a long-lived `ssh -A` session, say)
+    /// must not keep a working agent, and the keys it holds, past the lock.
+    /// Ending it here, rather than in each transport, also drops a request
+    /// still waiting on the user or on the phone.
     pub async fn serve<S>(
+        stream: S,
+        keys: KeyStore,
+        guard: SignGuard,
+        caller: Option<CallerInfo>,
+    ) -> std::io::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let stopped = guard.clone();
+        tokio::select! {
+            biased;
+            _ = stopped.stopped() => Ok(()),
+            served = serve_until_closed(stream, keys, guard, caller) => served,
+        }
+    }
+
+    async fn serve_until_closed<S>(
         mut stream: S,
         keys: KeyStore,
         guard: SignGuard,
@@ -689,8 +743,13 @@ mod proto {
         }
 
         let store = keys.lock().await;
-        // The key set can't change while the agent runs, but re-find
-        // defensively rather than carrying a reference across the await.
+        // Authorized a moment ago, possibly after a long wait on the user:
+        // the agent may have stopped since. Last check before the key is
+        // used; a stop also empties the store, which the lookup below
+        // then turns into a failure.
+        if guard.is_cancelled() {
+            return vec![SSH_AGENT_FAILURE];
+        }
         let Some(key) = store.iter().find(|k| k.pub_blob == key_blob) else {
             return vec![SSH_AGENT_FAILURE];
         };
@@ -1027,6 +1086,133 @@ mod proto {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let g = SignGuard::new(SignPolicy::Always, None);
             assert!(!rt.block_on(g.authorize(req_for(&dummy_key("SHA256:a")))));
+        }
+
+        /// One Ed25519 key in a store, and a sign request for it.
+        fn store_with_a_key() -> (KeyStore, Vec<u8>) {
+            let blob = b"stop-test-key".to_vec();
+            let keys: KeyStore = Arc::new(Mutex::new(vec![AgentKey {
+                pub_blob: blob.clone(),
+                comment: "vault".into(),
+                algorithm: "ssh-ed25519".into(),
+                fingerprint: "SHA256:stop".into(),
+                kind: SignerKind::Ed25519(SigningKey::from_bytes(&[7u8; 32])),
+            }]));
+            let mut sign = vec![SSH_AGENTC_SIGN_REQUEST];
+            write_string(&mut sign, &blob);
+            write_string(&mut sign, b"data");
+            sign.extend_from_slice(&u32::to_be_bytes(0));
+            (keys, sign)
+        }
+
+        /// The vault locked: `stop` cancelled the guard. A connection that
+        /// was already open must get nothing more, under the policies that
+        /// never reach `ask`: `Never`, and `PerSession` once approved.
+        #[tokio::test]
+        async fn a_stopped_agent_neither_lists_nor_signs() {
+            let calls = Arc::new(Mutex::new(0u32));
+            for guard in [
+                SignGuard::new(SignPolicy::Never, None),
+                SignGuard::new(
+                    SignPolicy::PerSession,
+                    Some(counting_confirm(true, calls.clone())),
+                ),
+            ] {
+                let (keys, sign) = store_with_a_key();
+                let mut conn = ConnState::default();
+                let list = [SSH_AGENTC_REQUEST_IDENTITIES];
+
+                let out = process_message(&list, &keys, &guard, None, &mut conn).await;
+                assert_eq!(out[0], SSH_AGENT_IDENTITIES_ANSWER);
+                assert_eq!(&out[1..5], &[0, 0, 0, 1]);
+                // Signs (and, per session, records the approval).
+                let out = process_message(&sign, &keys, &guard, None, &mut conn).await;
+                assert_eq!(out[0], SSH_AGENT_SIGN_RESPONSE);
+
+                guard.cancel();
+
+                let out = process_message(&list, &keys, &guard, None, &mut conn).await;
+                assert_eq!(out, vec![SSH_AGENT_FAILURE], "keys listed after the stop");
+                let out = process_message(&sign, &keys, &guard, None, &mut conn).await;
+                assert_eq!(out, vec![SSH_AGENT_FAILURE], "signed after the stop");
+                // Not only `process_message`: the two layers under it too.
+                assert!(!guard.authorize(req_for(&dummy_key("SHA256:stop"))).await);
+                let out = handle_sign(&keys, &guard, &sign[1..], None, &conn).await;
+                assert_eq!(out, vec![SSH_AGENT_FAILURE]);
+            }
+        }
+
+        /// A stop that lands while the request waits for the user: the
+        /// approval that was about to be given signs nothing.
+        #[tokio::test]
+        async fn a_stop_during_the_confirmation_signs_nothing() {
+            let (keys, sign) = store_with_a_key();
+            let asked = Arc::new(tokio::sync::Notify::new());
+            let confirm: ConfirmFn = {
+                let asked = asked.clone();
+                Arc::new(move |_req: SignRequest| {
+                    let asked = asked.clone();
+                    Box::pin(async move {
+                        asked.notify_one();
+                        std::future::pending::<bool>().await
+                    })
+                })
+            };
+            let guard = SignGuard::new(SignPolicy::Always, Some(confirm));
+            let request = tokio::spawn({
+                let (keys, guard) = (keys.clone(), guard.clone());
+                async move {
+                    let mut conn = ConnState::default();
+                    process_message(&sign, &keys, &guard, None, &mut conn).await
+                }
+            });
+            asked.notified().await;
+            guard.cancel();
+            assert_eq!(request.await.unwrap(), vec![SSH_AGENT_FAILURE]);
+        }
+
+        /// The connection itself ends with the agent, in every transport:
+        /// the client reads end-of-file, as from an agent that exited.
+        #[tokio::test]
+        async fn a_connection_ends_when_the_agent_stops() {
+            let (keys, sign) = store_with_a_key();
+            let guard = SignGuard::new(SignPolicy::Never, None);
+            let (mut client, server) = tokio::io::duplex(4096);
+            let served = tokio::spawn(serve(server, keys, guard.clone(), None));
+
+            client.write_u32(1).await.unwrap();
+            client
+                .write_u8(SSH_AGENTC_REQUEST_IDENTITIES)
+                .await
+                .unwrap();
+            let len = client.read_u32().await.unwrap() as usize;
+            let mut answer = vec![0u8; len];
+            client.read_exact(&mut answer).await.unwrap();
+            assert_eq!(answer[0], SSH_AGENT_IDENTITIES_ANSWER);
+
+            guard.cancel();
+            served.await.unwrap().unwrap();
+
+            // Whatever the client still sends, nothing comes back.
+            let _ = client.write_u32(sign.len() as u32).await;
+            let _ = client.write_all(&sign).await;
+            let mut rest = Vec::new();
+            let _ = client.read_to_end(&mut rest).await;
+            assert!(rest.is_empty(), "answered after the stop: {rest:?}");
+        }
+
+        /// A connection opened after the stop (a transport slow to notice)
+        /// is closed at once.
+        #[tokio::test]
+        async fn serving_on_a_stopped_agent_closes_at_once() {
+            let (keys, _) = store_with_a_key();
+            let guard = SignGuard::new(SignPolicy::Never, None);
+            guard.cancel();
+            let (mut client, server) = tokio::io::duplex(4096);
+            serve(server, keys, guard, None).await.unwrap();
+            let mut rest = Vec::new();
+            let _ = client.read_to_end(&mut rest).await;
+            assert!(rest.is_empty());
         }
 
         /// RFC 8032 §7.1 "TEST 2" Ed25519 vector. Pins the two things a
@@ -1727,27 +1913,48 @@ mod unix {
         /// The signing material itself stays in the keystore guarded by the
         /// task; this list is safe to clone into a status response.
         pub keys: Vec<KeyInfo>,
+        /// The accept loop. It owns the connection tasks (a `JoinSet`), so
+        /// aborting it aborts every open connection with it.
         task: JoinHandle<()>,
-        #[allow(dead_code)]
         key_store: KeyStore,
         /// Used to deny parked confirmations on stop, so stopping never
-        /// waits on a prompt nobody can answer.
+        /// waits on a prompt nobody can answer, and to end the connections
+        /// that are still open.
         guard: SignGuard,
     }
 
     impl SshAgentHandle {
         pub async fn stop(self) {
-            self.guard.cancel();
-            self.task.abort();
+            self.end();
             let _ = tokio::fs::remove_file(&self.socket_path).await;
         }
 
         /// Non-async best-effort stop, suitable for `lock` / `logout` commands
         /// that don't want to be async just for this cleanup.
         pub fn stop_sync(self) {
+            self.end();
+            let _ = std::fs::remove_file(&self.socket_path);
+        }
+
+        /// Stop serving, on the listening socket and on every connection
+        /// already open, and let go of the keys. A stop is what a vault
+        /// lock does to the agent: after it, no client may list or use a
+        /// key, however long ago it connected.
+        ///
+        /// Three layers, each enough on its own: the cancelled guard makes
+        /// every request fail and every connection close; aborting the
+        /// accept loop drops its `JoinSet`, which aborts the connection
+        /// tasks; and the store is emptied so the key material goes now
+        /// rather than when the last task is reaped.
+        fn end(&self) {
             self.guard.cancel();
             self.task.abort();
-            let _ = std::fs::remove_file(&self.socket_path);
+            // Held only for the length of a lookup or of one signature.
+            // If it is held right now, that task sees the cancelled guard
+            // next and drops its clone of the store when it ends.
+            if let Ok(mut keys) = self.key_store.try_lock() {
+                keys.clear();
+            }
         }
     }
 
@@ -1762,12 +1969,37 @@ mod unix {
         std::fs::create_dir_all(&path).map_err(|e| Error::Storage {
             reason: format!("cannot create agent dir {}: {e}", path.display()),
         })?;
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
-        }
+        make_private(&path, 0o700)?;
         path.push("agent.sock");
         Ok(path)
+    }
+
+    /// Restrict `path` to its owner, and fail if that cannot be done.
+    ///
+    /// The directory is what keeps other users away from the socket:
+    /// `bind` creates it with the umask's bits, and it only becomes 0600 a
+    /// moment later. Inside a 0700 directory that moment does not matter.
+    /// It matters outside `$XDG_RUNTIME_DIR` (which is already private):
+    /// the fallback is the cache directory, always the case on macOS. A
+    /// failure used to be ignored, leaving the agent reachable with
+    /// whatever permissions happened to be there.
+    fn make_private(path: &std::path::Path, mode: u32) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).map_err(|e| {
+            Error::Storage {
+                reason: format!("cannot restrict {} to its owner: {e}", path.display()),
+            }
+        })
+    }
+
+    /// Whether a connecting process may use the agent: the user Clavix
+    /// runs as, or root, which is the rule of OpenSSH's `ssh-agent` (root
+    /// can reach the keys anyway, and `sudo` with a preserved
+    /// `SSH_AUTH_SOCK` is a real use). The socket's permissions already
+    /// say so; this is the same rule, enforced a second time on every
+    /// connection in case they were changed under us.
+    fn peer_allowed(peer_uid: u32, owner_uid: u32) -> bool {
+        peer_uid == owner_uid || peer_uid == 0
     }
 
     /// Read the peer's credentials off an accepted connection.
@@ -1815,10 +2047,21 @@ mod unix {
         let listener = UnixListener::bind(&socket_path).map_err(|e| Error::Storage {
             reason: format!("bind {}: {e}", socket_path.display()),
         })?;
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600));
-        }
+        // An agent that cannot make its socket private does not serve.
+        // The socket's owner is the user Clavix runs as: the uid every
+        // peer is compared with.
+        let owner_uid = make_private(&socket_path, 0o600)
+            .and_then(|()| {
+                use std::os::unix::fs::MetadataExt;
+                std::fs::metadata(&socket_path)
+                    .map(|m| m.uid())
+                    .map_err(|e| Error::Storage {
+                        reason: format!("stat {}: {e}", socket_path.display()),
+                    })
+            })
+            .inspect_err(|_| {
+                let _ = std::fs::remove_file(&socket_path);
+            })?;
 
         let key_summaries: Vec<KeyInfo> = keys.iter().map(KeyInfo::from).collect();
         let store: KeyStore = Arc::new(tokio::sync::Mutex::new(keys));
@@ -1827,16 +2070,36 @@ mod unix {
         let guard_for_handle = guard.clone();
 
         let task = tokio::spawn(async move {
+            // The connections belong to the accept loop: when it is
+            // aborted (the agent stops), the set is dropped and every
+            // connection task is aborted with it. Detached tasks would
+            // outlive the stop, each with its own clone of the key store.
+            let mut connections = tokio::task::JoinSet::new();
             loop {
-                match listener.accept().await {
+                let accepted = tokio::select! {
+                    accepted = listener.accept() => accepted,
+                    // Reap finished connections so the set does not grow.
+                    Some(_) = connections.join_next() => continue,
+                };
+                match accepted {
                     Ok((stream, _)) => {
+                        // Unknown credentials are refused too: nothing
+                        // then says the peer is this user.
+                        let peer_uid = stream.peer_cred().ok().map(|c| c.uid());
+                        if !peer_uid.is_some_and(|uid| peer_allowed(uid, owner_uid)) {
+                            eprintln!(
+                                "[clavix agent] connection refused: peer uid {peer_uid:?} is \
+                                 not the user Clavix runs as"
+                            );
+                            continue;
+                        }
                         let store = store_task.clone();
                         let guard = guard.clone();
                         // Resolve the peer at accept time: the pid is only
                         // guaranteed meaningful while the connection is
                         // open, and the process may exit mid-request.
                         let caller = peer_caller(&stream);
-                        tokio::spawn(async move {
+                        connections.spawn(async move {
                             if let Err(e) = serve(stream, store, guard, caller).await {
                                 eprintln!("[clavix agent] connection error: {e}");
                             }
@@ -1908,6 +2171,111 @@ mod unix {
         #[test]
         fn process_name_is_none_for_an_unknown_pid() {
             assert_eq!(process_name(u32::MAX), None);
+        }
+
+        #[test]
+        fn only_the_owner_and_root_may_use_the_agent() {
+            assert!(peer_allowed(1000, 1000));
+            assert!(peer_allowed(0, 1000));
+            assert!(!peer_allowed(1001, 1000));
+            assert!(!peer_allowed(65534, 1000));
+        }
+
+        /// The socket is 0600 once the agent runs, and an agent that
+        /// cannot have a private socket does not start.
+        #[tokio::test]
+        async fn the_agent_socket_is_private_or_the_agent_does_not_start() {
+            use super::super::proto::SignPolicy;
+            use std::os::unix::fs::PermissionsExt;
+
+            let dir = tempfile::tempdir().unwrap();
+            let socket = dir.path().join("agent.sock");
+            let guard = SignGuard::new(SignPolicy::Never, None);
+            let handle = start_agent(socket.clone(), Vec::new(), guard.clone())
+                .await
+                .unwrap();
+            let mode = std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+            // Our own connections (same uid) are served.
+            assert!(UnixStream::connect(&socket).await.is_ok());
+            handle.stop().await;
+
+            // Nowhere to bind: an error, not an agent.
+            let missing = dir.path().join("missing").join("agent.sock");
+            assert!(start_agent(missing, Vec::new(), guard).await.is_err());
+            assert!(make_private(&dir.path().join("absent"), 0o700).is_err());
+        }
+
+        /// The scenario of the bug, on a real socket: a client connects
+        /// while the vault is unlocked (think `ssh -A`, kept open for
+        /// hours), the vault locks, then the client asks again. Under the
+        /// silent policy it used to be served, with the vault's keys.
+        #[cfg(target_os = "linux")]
+        #[tokio::test]
+        async fn a_connection_opened_before_the_stop_cannot_sign_after_it() {
+            use super::super::proto::{SignPolicy, SignerKind};
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            const LIST: u8 = 11; // SSH_AGENTC_REQUEST_IDENTITIES
+            const SIGN: u8 = 13; // SSH_AGENTC_SIGN_REQUEST
+            const SIGN_RESPONSE: u8 = 14;
+
+            async fn ask(client: &mut UnixStream, msg: &[u8]) -> std::io::Result<Vec<u8>> {
+                client.write_u32(msg.len() as u32).await?;
+                client.write_all(msg).await?;
+                let len = client.read_u32().await? as usize;
+                let mut answer = vec![0u8; len];
+                client.read_exact(&mut answer).await?;
+                Ok(answer)
+            }
+
+            for stop_sync in [true, false] {
+                let dir = tempfile::tempdir().unwrap();
+                let socket = dir.path().join("agent.sock");
+                let blob = b"vault-key".to_vec();
+                let key = AgentKey {
+                    pub_blob: blob.clone(),
+                    comment: "vault".into(),
+                    algorithm: "ssh-ed25519".into(),
+                    fingerprint: "SHA256:vault".into(),
+                    kind: SignerKind::Ed25519(ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])),
+                };
+                let guard = SignGuard::new(SignPolicy::Never, None);
+                let handle = start_agent(socket.clone(), vec![key], guard).await.unwrap();
+                let store = handle.key_store.clone();
+
+                let mut sign = vec![SIGN];
+                for field in [blob.as_slice(), b"data"] {
+                    sign.extend_from_slice(&u32::to_be_bytes(field.len() as u32));
+                    sign.extend_from_slice(field);
+                }
+                sign.extend_from_slice(&u32::to_be_bytes(0));
+
+                // Unlocked: the connection works.
+                let mut client = UnixStream::connect(&socket).await.unwrap();
+                let listed = ask(&mut client, &[LIST]).await.unwrap();
+                assert_eq!(&listed[1..5], &[0, 0, 0, 1]);
+                let signed = ask(&mut client, &sign).await.unwrap();
+                assert_eq!(signed[0], SIGN_RESPONSE);
+
+                // The vault locks.
+                if stop_sync {
+                    handle.stop_sync();
+                } else {
+                    handle.stop().await;
+                }
+
+                // The same connection, afterwards: closed, no signature
+                // and no key list.
+                for msg in [sign.as_slice(), &[LIST]] {
+                    match ask(&mut client, msg).await {
+                        Err(_) => {}
+                        Ok(answer) => panic!("answered after the stop: {answer:?}"),
+                    }
+                }
+                assert!(store.lock().await.is_empty(), "keys kept after the stop");
+                assert!(UnixStream::connect(&socket).await.is_err());
+            }
         }
     }
 } // mod unix

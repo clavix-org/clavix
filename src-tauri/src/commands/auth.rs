@@ -609,8 +609,7 @@ pub async fn screen_lock_available() -> bool {
 
 #[tauri::command]
 pub fn lock(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    crate::commands::ssh::stop_agent_sync(&state);
-    let was_unlocked = state.session.lock().take().is_some();
+    let was_unlocked = crate::commands::ssh::lock_session_sync(&state);
     // A pending 2FA slot only matters for an in-flight login; once the
     // session is locked there is no scenario where we want to keep
     // those secrets around.
@@ -623,11 +622,17 @@ pub fn lock(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
 
 #[tauri::command]
 pub fn logout(state: State<'_, AppState>) -> Result<()> {
-    crate::commands::ssh::stop_agent_sync(&state);
-    {
-        let mut guard = state.session.lock();
-        *guard = None;
-    }
+    // Logging out ends the phone pairings with the account: the phone
+    // that approves (stored in `session.json`, deleted below) and the
+    // phone that signs while the vault is locked, whose files live
+    // outside the vault and would otherwise bring its agent back at the
+    // next launch, with nobody logged in. Before the agents stop: a
+    // locked-vault agent caught mid-start re-reads the pairing once it
+    // is in its slot, and must find it gone.
+    crate::commands::phone::revoke_on_logout();
+    crate::commands::phone_sign::forget_on_logout();
+    // Session first, then the agents: see `ssh::lock_session_sync`.
+    crate::commands::ssh::lock_session_sync(&state);
     clear_pending_two_factor(&state);
     store::clear_session()?;
     if let Err(e) = cache::clear_all() {

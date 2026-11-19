@@ -474,8 +474,7 @@ fn lock_session(app: &AppHandle) {
     // calling the Tauri command directly because we hold an
     // `AppHandle`, not the `State<'_, AppState>` shape Tauri's
     // dispatcher would hand us — and we don't need a return value.
-    crate::commands::ssh::stop_agent_sync(&state);
-    let was_unlocked = state.session.lock().take().is_some();
+    let was_unlocked = crate::commands::ssh::lock_session_sync(&state);
     crate::session::clear_pending_two_factor(&state);
     if was_unlocked {
         crate::commands::phone_sign::after_vault_lock(app);

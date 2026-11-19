@@ -473,6 +473,39 @@ pub(crate) fn stop_agent_sync(state: &AppState) {
     state.ssh_skipped.lock().clear();
 }
 
+/// Lock: drop the session, then stop the agents. Returns whether there
+/// was a session to drop.
+///
+/// The order is what `install_vault_agent` relies on. A `start_ssh_agent`
+/// that began before the lock loaded its keys from a session that was
+/// still there, and puts its agent in the slot later. With the session
+/// gone first, it either sees that under the session lock and gives up,
+/// or it stored its agent before, and the stop that follows here takes
+/// it. Stopping first left a window where the start found the session,
+/// the stop found an empty slot, and the vault's keys were then served
+/// over a locked vault until the next unlock.
+pub(crate) fn lock_session_sync(state: &AppState) -> bool {
+    let was_unlocked = state.session.lock().take().is_some();
+    stop_agent_sync(state);
+    was_unlocked
+}
+
+/// Put a freshly started vault agent in its slot, unless the vault was
+/// locked (or logged out) while it was starting: then the agent is handed
+/// back, for the caller to stop. Checked and stored under the session
+/// lock; see `lock_session_sync` for why that is enough.
+fn install_vault_agent(
+    state: &AppState,
+    handle: ssh_agent::SshAgentHandle,
+) -> Option<ssh_agent::SshAgentHandle> {
+    let session = state.session.lock();
+    if session.is_none() {
+        return Some(handle);
+    }
+    *state.ssh_agent.lock() = Some(handle);
+    None
+}
+
 #[tauri::command]
 pub async fn start_ssh_agent(
     state: State<'_, AppState>,
@@ -595,15 +628,17 @@ pub async fn start_ssh_agent(
         skipped: skipped.clone(),
     };
 
+    // The keys were read from the session a while ago (decryption, key
+    // parsing, the socket bind): the vault may have locked since.
+    if let Some(stale) = install_vault_agent(&state, handle) {
+        stale.stop().await;
+        return Err(Error::NotAuthenticated);
+    }
+
     // Remember why keys were left out so `ssh_agent_status` can answer the
     // "why does it say 8 when I have 9?" question on any later poll, not
     // just in this reply.
     *state.ssh_skipped.lock() = skipped;
-
-    {
-        let mut slot = state.ssh_agent.lock();
-        *slot = Some(handle);
-    }
     Ok(status)
 }
 
@@ -1057,5 +1092,98 @@ mod teardown_tests {
             .expect("the prompt must be answered, not dropped"));
         assert!(state.ssh_confirms.lock().is_empty());
         assert!(state.ssh_skipped.lock().is_empty());
+    }
+
+    #[cfg(unix)]
+    fn unlock(state: &AppState) {
+        crate::session::store_standalone_session(
+            state,
+            clavix_core::session::SessionOrigin::ExportFile,
+            clavix_core::crypto::SymmetricKey::from_bytes(&[7; 64]).unwrap(),
+            None,
+            Default::default(),
+            None,
+        );
+    }
+
+    #[cfg(unix)]
+    async fn started(socket: &std::path::Path) -> ssh_agent::SshAgentHandle {
+        let guard = SignGuard::new(SignPolicy::Never, None);
+        ssh_agent::start_agent(socket.to_path_buf(), Vec::new(), guard)
+            .await
+            .unwrap()
+    }
+
+    /// `start_ssh_agent` read its keys, then the vault locked, then its
+    /// agent was ready: the agent must not be installed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_vault_agent_started_across_a_lock_is_not_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let socket = tmp.path().join("agent.sock");
+        let state = AppState::default();
+        unlock(&state);
+        let handle = started(&socket).await;
+
+        assert!(lock_session_sync(&state));
+
+        let stale = install_vault_agent(&state, handle).expect("handed back, not installed");
+        assert!(state.ssh_agent.lock().is_none());
+        stale.stop().await;
+        assert!(!socket.exists());
+    }
+
+    /// The other order: installed just before the lock, so the lock's own
+    /// stop takes it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_vault_agent_installed_before_a_lock_is_stopped_by_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let socket = tmp.path().join("agent.sock");
+        let state = AppState::default();
+        unlock(&state);
+        assert!(install_vault_agent(&state, started(&socket).await).is_none());
+        assert!(state.ssh_agent.lock().is_some());
+
+        assert!(lock_session_sync(&state));
+        assert!(state.ssh_agent.lock().is_none());
+        assert!(!socket.exists());
+        // Locking twice reports that there was nothing left to lock.
+        assert!(!lock_session_sync(&state));
+    }
+
+    /// The interleaving that used to leave an agent over a locked vault:
+    /// the lock runs while the start is between "the session is there"
+    /// and "the agent is in its slot". The start holds the session lock
+    /// across both (as `install_vault_agent` does); the lock must wait
+    /// for it before it looks for an agent to stop.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_lock_waits_for_an_agent_being_installed_then_stops_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let socket = tmp.path().join("agent.sock");
+        let state = Arc::new(AppState::default());
+        unlock(&state);
+        let handle = started(&socket).await;
+
+        let session = state.session.lock();
+        assert!(session.is_some());
+        let locking = std::thread::spawn({
+            let state = state.clone();
+            move || lock_session_sync(&state)
+        });
+        // Give the lock every chance to run ahead; it cannot pass the
+        // session lock held here.
+        std::thread::sleep(Duration::from_millis(200));
+        *state.ssh_agent.lock() = Some(handle);
+        drop(session);
+
+        assert!(locking.join().unwrap());
+        assert!(state.session.lock().is_none());
+        assert!(
+            state.ssh_agent.lock().is_none(),
+            "a vault agent is running over a locked vault"
+        );
+        assert!(!socket.exists());
     }
 }

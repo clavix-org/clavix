@@ -119,7 +119,7 @@ Review topics:
 - lock/logout cleanup
 - phone approval: that only a verified proof becomes an approval, that a deny from either side denies, that an unreachable relay never approves, that both prompts are withdrawn on every exit path (answer, timeout, agent stop, auto-lock), and the parsing of relay responses (in `clavix-approve-core`)
 - the stored pairing: encrypted with the user key in `session.json`, dropped from memory on lock
-- locked-vault signing: that no vault key survives a lock (the key-less agent holds only `SignerKind::Phone` keys), that it starts only after a real lock or at launch, and never after logout, that it stops on unlock before the vault agent binds the socket (`AppState::agent_transition`), that unbound or non-login requests are refused before the phone is contacted, that the phone's signature is verified before it is returned, and the sign-mode state file outside the vault (0600, `<config dir>/clavix/phone-sign/`)
+- locked-vault signing: that no vault key survives a lock (the key-less agent holds only `SignerKind::Phone` keys), that it starts only after a real lock or at launch, and never after logout (logout deletes the sign-mode pairing, and an agent caught mid-start re-reads it once in its slot), that a vault agent whose start overlaps a lock is not installed (`ssh::lock_session_sync`, `ssh::install_vault_agent`), that it stops on unlock before the vault agent binds the socket (`AppState::agent_transition`), that unbound or non-login requests are refused before the phone is contacted, that the phone's signature is verified before it is returned, and the sign-mode state file outside the vault (0600, `<config dir>/clavix/phone-sign/`)
 
 ### 5. WebAuthn / FIDO2
 
