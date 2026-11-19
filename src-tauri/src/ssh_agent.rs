@@ -66,6 +66,47 @@ mod proto {
         /// curve's hash (SHA-256/384/512) and encodes the `(r, s)` pair the
         /// way RFC 5656 wants it.
         Ecdsa(Box<PrivateKey>),
+        /// A key that never leaves a paired phone (Clavix Approve, sign
+        /// mode): the agent holds only its public half and has the phone
+        /// sign, after the user approved there. What the agent offers
+        /// while the vault is locked — no vault key is in memory then.
+        #[cfg_attr(not(feature = "phone-approval"), allow(dead_code))]
+        Phone(Arc<dyn PhoneSigner>),
+    }
+
+    /// Outcome of a phone signature: the complete SSH signature blob, or
+    /// why there is none (one line, for the log).
+    pub type PhoneSignFuture =
+        Pin<Box<dyn Future<Output = std::result::Result<Vec<u8>, String>> + Send>>;
+
+    /// Has a paired phone sign with its own key. Implemented over the
+    /// Clavix Approve relay (`phone_sign_relay`); tests use fakes. Kept
+    /// here as a trait so this module stays free of the relay client.
+    pub trait PhoneSigner: Send + Sync {
+        /// Send `req` to the phone holding `req.key_blob` and wait for its
+        /// signature. Must give up by itself (`Err`) after its timeout.
+        fn sign(&self, req: SignRequest) -> PhoneSignFuture;
+    }
+
+    #[cfg_attr(not(feature = "phone-approval"), allow(dead_code))]
+    impl AgentKey {
+        /// A phone-held key, from its SSH public key blob.
+        pub fn phone(
+            pub_blob: Vec<u8>,
+            comment: String,
+            signer: Arc<dyn PhoneSigner>,
+        ) -> Result<Self> {
+            let public = ssh_key::PublicKey::from_bytes(&pub_blob).map_err(|e| Error::Crypto {
+                reason: format!("phone key: {e}"),
+            })?;
+            Ok(Self {
+                algorithm: public.algorithm().to_string(),
+                fingerprint: public.fingerprint(HashAlg::Sha256).to_string(),
+                pub_blob,
+                comment,
+                kind: SignerKind::Phone(signer),
+            })
+        }
     }
 
     pub struct AgentKey {
@@ -598,12 +639,16 @@ mod proto {
         // under the lock, then release it: `authorize` can block on a
         // human for up to the confirmation timeout, and holding the store
         // lock across that would freeze every other agent request.
-        let key_info = {
+        let (key_info, phone) = {
             let store = keys.lock().await;
             let Some(k) = store.iter().find(|k| k.pub_blob == key_blob) else {
                 return vec![SSH_AGENT_FAILURE];
             };
-            KeyInfo::from(k)
+            let phone = match &k.kind {
+                SignerKind::Phone(signer) => Some(signer.clone()),
+                _ => None,
+            };
+            (KeyInfo::from(k), phone)
         };
 
         let request = SignRequest {
@@ -614,8 +659,33 @@ mod proto {
             caller: caller.cloned(),
             hops: conn.hops.clone(),
         };
+        // A phone key signs only what the phone can check on its own, as
+        // in `clavix-agent`: an SSH login on a connection bound to that
+        // very session. Refused here, early, without waking the phone up.
+        if phone.is_some() {
+            if conn.bound_for_auth().is_none() {
+                eprintln!(
+                    "[clavix agent] sign request refused: connection has no session binding \
+                     for authentication"
+                );
+                return vec![SSH_AGENT_FAILURE];
+            }
+            if !request.phone_eligible() {
+                eprintln!(
+                    "[clavix agent] sign request refused: not a public-key user-auth request \
+                     for the bound session"
+                );
+                return vec![SSH_AGENT_FAILURE];
+            }
+        }
+        let phone_request = phone.as_ref().map(|_| request.clone());
         if !guard.authorize(request).await {
             return vec![SSH_AGENT_FAILURE];
+        }
+        if let (Some(signer), Some(request)) = (phone, phone_request) {
+            // The key-store lock is not held here: the phone can take up
+            // to its timeout, and every other request must go on.
+            return phone_sign(signer.as_ref(), request).await;
         }
 
         let store = keys.lock().await;
@@ -643,6 +713,8 @@ mod proto {
                 return out;
             }
             SignerKind::Ed25519(signer) => (b"ssh-ed25519", signer.sign(data).to_bytes().to_vec()),
+            // Answered above, before the store was locked again.
+            SignerKind::Phone(_) => return vec![SSH_AGENT_FAILURE],
             SignerKind::Rsa(rsa_key) => {
                 // flags=4 → SHA-512, flags=2 → SHA-256, legacy flags=0
                 // (SHA-1 / ssh-rsa) is deprecated — we degrade it to SHA-256
@@ -669,6 +741,52 @@ mod proto {
         write_string(&mut sig_blob, algo_name);
         write_string(&mut sig_blob, &sig_bytes);
 
+        let mut out = Vec::with_capacity(sig_blob.len() + 5);
+        out.push(SSH_AGENT_SIGN_RESPONSE);
+        write_string(&mut out, &sig_blob);
+        out
+    }
+
+    /// Have the phone sign `request` and answer with its signature, once
+    /// it verifies under the requested key. One log line per request,
+    /// whatever its outcome, with how long the phone took — the figure
+    /// that matters against sshd's `LoginGraceTime`.
+    async fn phone_sign(signer: &dyn PhoneSigner, request: SignRequest) -> Vec<u8> {
+        use rsa::signature::Verifier;
+
+        let destination = request
+            .hops
+            .last()
+            .map(|h| h.fingerprint.clone())
+            .unwrap_or_default();
+        let (key_blob, data) = (request.key_blob.clone(), request.data.clone());
+        let started = std::time::Instant::now();
+        let answer = signer.sign(request).await;
+        let waited = started.elapsed().as_secs_f32();
+        let sig_blob = match answer {
+            Ok(sig) => sig,
+            Err(reason) => {
+                eprintln!(
+                    "[clavix agent] no signature from the phone for {destination} after \
+                     {waited:.1} s: {reason}"
+                );
+                return vec![SSH_AGENT_FAILURE];
+            }
+        };
+        // A wrong signature would only fail later, at the server, with a
+        // less useful message.
+        let valid = ssh_key::PublicKey::from_bytes(&key_blob)
+            .ok()
+            .zip(ssh_key::Signature::try_from(sig_blob.as_slice()).ok())
+            .is_some_and(|(key, sig)| Verifier::verify(&key, &data, &sig).is_ok());
+        if !valid {
+            eprintln!(
+                "[clavix agent] the phone returned a signature that does not verify for \
+                 {destination} after {waited:.1} s; dropped"
+            );
+            return vec![SSH_AGENT_FAILURE];
+        }
+        eprintln!("[clavix agent] signed by the phone for {destination} after {waited:.1} s");
         let mut out = Vec::with_capacity(sig_blob.len() + 5);
         out.push(SSH_AGENT_SIGN_RESPONSE);
         write_string(&mut out, &sig_blob);
@@ -1405,6 +1523,189 @@ mod proto {
             assert!(!req(userauth(b"sid-j", None), &fwd_only.hops).phone_eligible());
             // another session than the bound one.
             assert!(!req(userauth(b"sid-x", None), &auth.hops).phone_eligible());
+        }
+
+        // ---- phone-held keys (sign mode, vault locked) ----------------------
+
+        /// What the fake phone does with a request.
+        #[derive(Clone, Copy)]
+        enum PhoneAnswer {
+            Sign,
+            Deny,
+            /// A signature by another key: must not reach the client.
+            WrongSignature,
+        }
+
+        /// A phone holding an Ed25519 key (fixed seed), answering `answer`
+        /// once `gate` is opened (at once without a gate).
+        struct FakePhone {
+            seed: u8,
+            answer: PhoneAnswer,
+            gate: Option<Arc<tokio::sync::Notify>>,
+            seen: Arc<std::sync::Mutex<Vec<SignRequest>>>,
+        }
+
+        impl FakePhone {
+            fn new(answer: PhoneAnswer) -> Self {
+                Self {
+                    seed: 21,
+                    answer,
+                    gate: None,
+                    seen: Arc::default(),
+                }
+            }
+            fn blob(&self) -> Vec<u8> {
+                HostKey::new(self.seed).blob()
+            }
+        }
+
+        impl PhoneSigner for FakePhone {
+            fn sign(&self, req: SignRequest) -> PhoneSignFuture {
+                let sig = match self.answer {
+                    PhoneAnswer::Sign => Ok(HostKey::new(self.seed).sign(&req.data)),
+                    PhoneAnswer::WrongSignature => Ok(HostKey::new(99).sign(&req.data)),
+                    PhoneAnswer::Deny => Err("denied by the signer".to_string()),
+                };
+                self.seen.lock().unwrap().push(req);
+                let gate = self.gate.clone();
+                Box::pin(async move {
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
+                    sig
+                })
+            }
+        }
+
+        fn phone_store(
+            phone: FakePhone,
+        ) -> (KeyStore, Vec<u8>, Arc<std::sync::Mutex<Vec<SignRequest>>>) {
+            let blob = phone.blob();
+            let seen = phone.seen.clone();
+            let key = AgentKey::phone(blob.clone(), "iphone".into(), Arc::new(phone)).unwrap();
+            assert_eq!(key.algorithm, "ssh-ed25519");
+            assert!(key.fingerprint.starts_with("SHA256:"));
+            (Arc::new(Mutex::new(vec![key])), blob, seen)
+        }
+
+        fn bound_to(host: &HostKey, sid: &[u8]) -> ConnState {
+            let mut conn = ConnState::default();
+            assert_eq!(bind(&mut conn, host, sid, false), vec![SSH_AGENT_SUCCESS]);
+            conn
+        }
+
+        #[test]
+        fn phone_key_answers_with_the_phones_signature() {
+            let host = HostKey::new(4);
+            let conn = bound_to(&host, b"sid-ok");
+            let (keys, blob, seen) = phone_store(FakePhone::new(PhoneAnswer::Sign));
+            let data = userauth(b"sid-ok", Some(&host.blob()));
+
+            let out = sign_with(&keys, &blob, &data, &conn);
+            assert_eq!(out[0], SSH_AGENT_SIGN_RESPONSE);
+            let mut expected = vec![SSH_AGENT_SIGN_RESPONSE];
+            write_string(&mut expected, &HostKey::new(21).sign(&data));
+            assert_eq!(out, expected);
+
+            // The phone got everything it needs to check the login itself.
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 1);
+            assert_eq!(seen[0].key_blob, blob);
+            assert_eq!(seen[0].data, data);
+            assert_eq!(seen[0].hops, conn.hops);
+            assert_eq!(seen[0].key.comment, "iphone");
+        }
+
+        #[test]
+        fn phone_key_denied_on_the_phone_fails() {
+            let host = HostKey::new(4);
+            let conn = bound_to(&host, b"sid-ok");
+            let (keys, blob, seen) = phone_store(FakePhone::new(PhoneAnswer::Deny));
+            let out = sign_with(&keys, &blob, &userauth(b"sid-ok", None), &conn);
+            assert_eq!(out, vec![SSH_AGENT_FAILURE]);
+            assert_eq!(seen.lock().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn phone_key_signature_that_does_not_verify_is_dropped() {
+            let host = HostKey::new(4);
+            let conn = bound_to(&host, b"sid-ok");
+            let (keys, blob, _) = phone_store(FakePhone::new(PhoneAnswer::WrongSignature));
+            let out = sign_with(&keys, &blob, &userauth(b"sid-ok", None), &conn);
+            assert_eq!(out, vec![SSH_AGENT_FAILURE]);
+        }
+
+        #[test]
+        fn phone_key_refuses_unbound_connections_without_asking() {
+            let (keys, blob, seen) = phone_store(FakePhone::new(PhoneAnswer::Sign));
+            let (jump, dest) = (HostKey::new(1), HostKey::new(2));
+
+            // No session-bind at all (old OpenSSH, PuTTY…).
+            let out = sign_with(&keys, &blob, &userauth(b"sid", None), &ConnState::default());
+            assert_eq!(out, vec![SSH_AGENT_FAILURE]);
+
+            // Only a forwarding bind: the destination is unknown.
+            let mut fwd = ConnState::default();
+            bind(&mut fwd, &jump, b"sid-j", true);
+            let out = sign_with(&keys, &blob, &userauth(b"sid-x", None), &fwd);
+            assert_eq!(out, vec![SSH_AGENT_FAILURE]);
+
+            // Bound, but git commit signing: nothing the phone can check.
+            let conn = bound_to(&dest, b"sid-d");
+            let out = sign_with(&keys, &blob, b"SSHSIG\0\0\0\x01", &conn);
+            assert_eq!(out, vec![SSH_AGENT_FAILURE]);
+
+            // Bound, but another session's challenge.
+            let out = sign_with(&keys, &blob, &userauth(b"sid-other", None), &conn);
+            assert_eq!(out, vec![SSH_AGENT_FAILURE]);
+
+            assert!(seen.lock().unwrap().is_empty(), "the phone was never asked");
+        }
+
+        #[test]
+        fn phone_key_does_not_hold_the_key_store_while_the_phone_decides() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let host = HostKey::new(4);
+            let conn = bound_to(&host, b"sid-ok");
+            let gate = Arc::new(tokio::sync::Notify::new());
+            let mut phone = FakePhone::new(PhoneAnswer::Sign);
+            phone.gate = Some(gate.clone());
+            let (keys, blob, seen) = phone_store(phone);
+            let data = userauth(b"sid-ok", None);
+
+            rt.block_on(async {
+                let mut payload = Vec::new();
+                write_string(&mut payload, &blob);
+                write_string(&mut payload, &data);
+                payload.extend_from_slice(&u32::to_be_bytes(0));
+                let sign = tokio::spawn({
+                    let keys = keys.clone();
+                    async move {
+                        let guard = SignGuard::new(SignPolicy::Never, None);
+                        handle_sign(&keys, &guard, &payload, None, &conn).await
+                    }
+                });
+                // Wait until the phone has the request, then list the keys
+                // while it is still deciding: must not wait for it.
+                while seen.lock().unwrap().is_empty() {
+                    tokio::task::yield_now().await;
+                }
+                let list =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), handle_list(&keys))
+                        .await
+                        .expect("the key store must be free while the phone decides");
+                assert_eq!(list[0], SSH_AGENT_IDENTITIES_ANSWER);
+                assert!(!sign.is_finished());
+                gate.notify_one();
+                let out = sign.await.unwrap();
+                assert_eq!(out[0], SSH_AGENT_SIGN_RESPONSE);
+            });
+        }
+
+        #[test]
+        fn phone_key_rejects_a_blob_that_is_not_a_public_key() {
+            let phone: Arc<dyn PhoneSigner> = Arc::new(FakePhone::new(PhoneAnswer::Sign));
+            assert!(AgentKey::phone(b"garbage".to_vec(), "x".into(), phone).is_err());
         }
     }
 } // mod proto
@@ -3273,6 +3574,10 @@ mod stub {
 }
 
 pub use proto::{try_load_agent_key, ConfirmFn, HostHop, SignGuard, SignPolicy, SignRequest};
+#[cfg_attr(not(feature = "phone-approval"), allow(unused_imports))]
+pub use proto::{AgentKey, PhoneSignFuture, PhoneSigner};
+#[cfg(all(test, feature = "phone-approval"))]
+pub use proto::{CallerInfo, KeyInfo};
 
 #[cfg(not(any(unix, windows)))]
 pub use stub::{default_socket_path, start_agent, SshAgentHandle};
