@@ -176,6 +176,11 @@
             {/each}
           </ul>
           <span class="hint">{status.relay}</span>
+          {#if forgetFailed}
+            <p class="hint phone-sign-warning" role="alert">
+              {m.phone_sign_forget_local_warning()}
+            </p>
+          {/if}
           <p class="hint">{m.phone_sign_forget_hint()}</p>
         </dd>
         <dt>{m.phone_sign_when_locked()}</dt>
@@ -297,6 +302,9 @@
 {/if}
 
 <style>
+  .phone-sign-warning {
+    color: var(--warning-text);
+  }
   .phone-sign {
     margin-top: 1.25rem;
     border-top: 1px solid var(--border);

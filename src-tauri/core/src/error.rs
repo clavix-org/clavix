@@ -1,6 +1,27 @@
 use serde::{Serialize, Serializer};
 use thiserror::Error;
 
+/// What went wrong around a phone pairing, for the UI to word. None of
+/// these is the Vaultwarden server answering badly, which is what
+/// `InvalidResponse` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhoneErrorKind {
+    /// No pairing is in progress any more: cancelled, expired, replaced.
+    NoPairing,
+    /// The action needs a paired phone, and there is none (or not that one).
+    NotPaired,
+    /// The relay address cannot be used (not a URL, not https).
+    BadRelayUrl,
+    /// The relay refused the credentials (HTTP 401/403): for a new
+    /// pairing, the enrolment secret.
+    Rejected,
+    /// The relay answered, but not what was expected: an error status, a
+    /// body that is not the protocol's, a pairing answer that does not
+    /// authenticate, a revocation it did not confirm.
+    Relay,
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Invalid URL: {url}")]
@@ -24,6 +45,14 @@ pub enum Error {
     /// `url` is the relay as configured, the thing to check first.
     #[error("Phone relay unreachable: {url} ({cause})")]
     RelayUnreachable { url: String, cause: String },
+
+    /// A phone pairing step failed for a reason `kind` names; `reason`
+    /// is the detail, in English, from where it failed.
+    #[error("Phone pairing: {reason}")]
+    Phone {
+        kind: PhoneErrorKind,
+        reason: String,
+    },
 
     /// The server answered with an HTML page instead of an API payload:
     /// a reverse proxy or an authentication portal in front of the
@@ -261,6 +290,18 @@ mod tests {
     }
 
     #[test]
+    fn a_phone_error_carries_its_kind_in_snake_case() {
+        let payload = serde_json::to_value(Error::Phone {
+            kind: PhoneErrorKind::BadRelayUrl,
+            reason: "the relay URL must use https".into(),
+        })
+        .unwrap();
+        assert_eq!(payload["code"], "phone_error");
+        assert_eq!(payload["data"]["kind"], "bad_relay_url");
+        assert_eq!(payload["data"]["reason"], "the relay URL must use https");
+    }
+
+    #[test]
     fn classify_returns_none_for_truly_unknown_strings() {
         assert!(classify_auth_message("Some other server message").is_none());
         assert!(classify_auth_message("").is_none());
@@ -295,6 +336,10 @@ impl Serialize for Error {
             Error::RelayUnreachable { url, cause } => (
                 "relay_unreachable",
                 serde_json::json!({ "url": url, "cause": cause }),
+            ),
+            Error::Phone { kind, reason } => (
+                "phone_error",
+                serde_json::json!({ "kind": kind, "reason": reason }),
             ),
             Error::HtmlResponse { status, title } => (
                 "html_response",
