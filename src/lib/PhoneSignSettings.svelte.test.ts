@@ -159,6 +159,8 @@ describe("PhoneSignSettings", () => {
     await fireEvent.click(button(/^\s*(Oublier|Forget)\s*$/));
     await flush();
     expect(apiMock.phoneSignForget).toHaveBeenCalledWith("cdcdcdcdcdcdcdcd", false);
+    // The escape hatch comes with what it leaves behind.
+    expect(document.body.textContent).toMatch(/reste appairé sur le relais|stays paired on the relay/);
     apiMock.phoneSignForget.mockResolvedValueOnce(UNPAIRED);
     await fireEvent.click(button(/Oublier ici quand même|Forget here anyway/));
     await flush();

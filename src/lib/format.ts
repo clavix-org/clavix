@@ -18,6 +18,23 @@ export function formatError(e: unknown): string {
       return m.err_http_status({ status: str(data.status), message: str(data.message) });
     case "relay_unreachable":
       return m.err_relay_unreachable({ url: str(data.url) });
+    case "phone_error": {
+      // Named by the Rust side (`PhoneErrorKind`): none of these is the
+      // Vaultwarden server answering badly.
+      const reason = str(data.reason);
+      switch (str(data.kind)) {
+        case "no_pairing":
+          return m.err_phone_no_pairing();
+        case "not_paired":
+          return m.err_phone_not_paired();
+        case "bad_relay_url":
+          return m.err_phone_bad_relay_url({ reason });
+        case "rejected":
+          return m.err_phone_rejected();
+        default:
+          return m.err_phone_relay({ reason });
+      }
+    }
     case "html_response": {
       // A proxy or a login portal answered in place of the server. The
       // Rust side already reduced the page to its <title>, if it had one.

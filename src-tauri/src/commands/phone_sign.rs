@@ -106,7 +106,7 @@ pub(crate) mod imp {
     use serde::{Deserialize, Serialize};
     use tokio::sync::Notify;
 
-    use super::super::phone::relay_call_error;
+    use super::super::phone::{no_pairing, phone_error, relay_call_error, relay_client};
     use super::*;
     use crate::phone_sign_relay::RelayPhoneSigner;
     use crate::ssh_agent::{self, AgentKey, SignGuard, SignPolicy};
@@ -114,6 +114,7 @@ pub(crate) mod imp {
     use clavix_approve_core::pairing::{pairing_url, Offer, Paired, PAIRING_WINDOW};
     use clavix_approve_core::relay::{revoke, revoke_device, RelayClient};
     use clavix_approve_core::state::{self as core_state, State as Pairing};
+    use clavix_core::error::PhoneErrorKind;
 
     const OPTIONS_FILE: &str = "options.json";
 
@@ -141,10 +142,8 @@ pub(crate) mod imp {
         }
     }
 
-    fn relay_error(e: impl std::fmt::Display) -> Error {
-        Error::InvalidResponse {
-            reason: format!("phone relay: {e}"),
-        }
+    fn not_paired(reason: impl std::fmt::Display) -> Error {
+        phone_error(PhoneErrorKind::NotPaired, reason)
     }
 
     pub fn load_pairing(dir: &Path) -> Option<Pairing> {
@@ -261,8 +260,8 @@ pub(crate) mod imp {
         let (offer, client, relay, label) = match &existing {
             // One more phone on the same channel (`clavix-agent pair --add`).
             Some(p) => {
-                let client = RelayClient::new(&p.relay).map_err(relay_error)?;
-                let offer = Offer::for_channel(p).map_err(relay_error)?;
+                let client = relay_client(&p.relay)?;
+                let offer = Offer::for_channel(p).map_err(|e| storage_error(dir, e))?;
                 offer
                     .open_on_channel(&client, &p.label)
                     .await
@@ -272,7 +271,7 @@ pub(crate) mod imp {
             None => {
                 let relay = relay.trim().trim_end_matches('/').to_string();
                 let label = label.trim().to_string();
-                let client = RelayClient::new(&relay).map_err(relay_error)?;
+                let client = relay_client(&relay)?;
                 let offer = Offer::new();
                 offer
                     .open(&client, enroll_secret.trim(), &label)
@@ -306,14 +305,14 @@ pub(crate) mod imp {
             let slot = PAIRING.lock();
             let p = slot
                 .as_ref()
-                .ok_or_else(|| relay_error("no pairing in progress"))?;
+                .ok_or_else(|| no_pairing("no pairing in progress"))?;
             (p.offer.clone(), p.client.clone(), p.cancel.clone())
         };
         let paired = tokio::select! {
             r = offer.wait_for_signer(&client, PAIRING_WINDOW) => {
                 r.map_err(|e| relay_call_error(client.base(), e))?
             }
-            _ = cancel.notified() => return Err(relay_error("pairing cancelled")),
+            _ = cancel.notified() => return Err(no_pairing("pairing cancelled")),
         };
         let out = PhonePairCandidate {
             digits: paired.fingerprint.clone(),
@@ -322,7 +321,7 @@ pub(crate) mod imp {
         let mut slot = PAIRING.lock();
         match slot.as_mut() {
             Some(p) if Arc::ptr_eq(&p.offer, &offer) => p.candidate = Some(paired),
-            _ => return Err(relay_error("pairing cancelled")),
+            _ => return Err(no_pairing("pairing cancelled")),
         }
         Ok(out)
     }
@@ -335,14 +334,27 @@ pub(crate) mod imp {
         let pairing = PAIRING
             .lock()
             .take()
-            .ok_or_else(|| relay_error("no pairing in progress"))?;
+            .ok_or_else(|| no_pairing("no pairing in progress"))?;
         let new = pairing
             .candidate
-            .ok_or_else(|| relay_error("no phone answered yet"))?
+            .ok_or_else(|| no_pairing("no phone answered yet"))?
             .signer;
         let public_key = new.public_key.clone();
         let renewed = match pairing.existing {
-            Some(mut existing) => {
+            Some(snapshot) => {
+                // One more phone: added to the pairing as it is on disk
+                // now, not as it was when the code was shown. A phone
+                // forgotten in between must not come back with it. If
+                // they were all forgotten, the channel is still the one
+                // this phone just joined, and it becomes its only device.
+                let mut existing = match load_pairing(dir) {
+                    Some(current) if current.ch == snapshot.ch => current,
+                    Some(_) => return Err(no_pairing("the pairing was replaced meanwhile")),
+                    None => Pairing {
+                        signers: Vec::new(),
+                        ..snapshot
+                    },
+                };
                 // The same phone paired again (same key): it replaces its
                 // old entry, which it no longer answers for.
                 match existing
@@ -441,18 +453,19 @@ pub(crate) mod imp {
         local_only: bool,
         locked_agent_running: bool,
     ) -> Result<PhoneSignStatus> {
-        let mut pairing = load_pairing(dir).ok_or_else(|| relay_error("no phone is paired"))?;
+        let mut pairing = load_pairing(dir).ok_or_else(|| not_paired("no phone is paired"))?;
         let i = pairing
             .signers
             .iter()
             .position(|s| s.id == id)
-            .ok_or_else(|| relay_error(format!("no paired phone {id}")))?;
+            .ok_or_else(|| not_paired(format!("no paired phone {id}")))?;
         if !local_only {
-            let client = RelayClient::new(&pairing.relay).map_err(relay_error)?;
+            let client = relay_client(&pairing.relay)?;
             revoke_device(&client, &pairing.ch, &pairing.agent_token, id)
                 .await
                 .map_err(|e| match relay_call_error(&pairing.relay, e) {
-                    Error::InvalidResponse { reason } => Error::InvalidResponse {
+                    Error::Phone { kind, reason } => Error::Phone {
+                        kind,
                         reason: format!("{reason}; nothing was changed"),
                     },
                     unreachable => unreachable,
@@ -473,7 +486,7 @@ pub(crate) mod imp {
         locked_agent_running: bool,
     ) -> Result<PhoneSignStatus> {
         if load_pairing(dir).is_none() {
-            return Err(relay_error("no phone is paired"));
+            return Err(not_paired("no phone is paired"));
         }
         save_options(
             dir,
@@ -686,6 +699,52 @@ pub(crate) mod imp {
             assert!(!after.paired);
             assert!(!dir.join("state.json").exists());
             assert!(!dir.join(OPTIONS_FILE).exists());
+        }
+
+        /// "Add a phone" shows its code, a paired phone is forgotten while
+        /// it is displayed, then the new phone is confirmed: the forgotten
+        /// one must not be written back from the snapshot taken when the
+        /// code was shown.
+        #[tokio::test]
+        async fn a_phone_forgotten_while_adding_another_stays_forgotten() {
+            use clavix_approve_core::state::Signer;
+
+            let signer = |id: &str, key: &str| Signer {
+                id: id.into(),
+                public_key: format!("ecdsa-sha2-nistp256 {key} {id}"),
+                ..sample_state().signers[0].clone()
+            };
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path();
+            let mut paired = sample_state();
+            paired.signers = vec![signer("kept", "AAAA"), signer("forgotten", "BBBB")];
+            save_pairing(dir, &paired).unwrap();
+
+            // `pair_start`, then the new phone answered.
+            *PAIRING.lock() = Some(InProgress {
+                offer: Arc::new(Offer::for_channel(&paired).unwrap()),
+                client: RelayClient::new(&paired.relay).unwrap(),
+                relay: paired.relay.clone(),
+                label: paired.label.clone(),
+                existing: Some(paired.clone()),
+                candidate: Some(Paired {
+                    signer: signer("new", "CCCC"),
+                    fingerprint: "042 917".into(),
+                }),
+                cancel: Arc::new(Notify::new()),
+            });
+
+            forget(dir, "forgotten", true, false).await.unwrap();
+            let done = pair_confirm(dir, false).await.unwrap();
+
+            assert!(!done.renewed);
+            let ids: Vec<String> = load_pairing(dir)
+                .unwrap()
+                .signers
+                .into_iter()
+                .map(|s| s.id)
+                .collect();
+            assert_eq!(ids, ["kept", "new"]);
         }
 
         #[test]
