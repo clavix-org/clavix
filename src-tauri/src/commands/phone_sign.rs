@@ -654,6 +654,11 @@ pub(crate) mod imp {
             );
         }
 
+        /// `PAIRING` is one per process, and the test threads share it:
+        /// a test that fills it or runs a logout (which cancels the pairing
+        /// in progress) holds this for its whole length.
+        static PAIRING_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
         /// Ask the agent on `socket` for its keys; their comments.
         async fn listed(socket: &Path) -> Vec<String> {
             let mut s = tokio::net::UnixStream::connect(socket).await.unwrap();
@@ -752,6 +757,7 @@ pub(crate) mod imp {
         async fn a_phone_forgotten_while_adding_another_stays_forgotten() {
             use clavix_approve_core::state::Signer;
 
+            let _pairing = PAIRING_TESTS.lock().await;
             let signer = |id: &str, key: &str| Signer {
                 id: id.into(),
                 public_key: format!("ecdsa-sha2-nistp256 {key} {id}"),
@@ -918,6 +924,7 @@ pub(crate) mod imp {
         /// could bring the agent back at the next launch.
         #[test]
         fn logout_removes_the_phone_sign_pairing() {
+            let _pairing = PAIRING_TESTS.blocking_lock();
             let tmp = tempfile::tempdir().unwrap();
             let dir = tmp.path();
             assert!(remove_for_logout(dir).is_none(), "nothing paired");
@@ -947,6 +954,7 @@ pub(crate) mod imp {
         /// What `at_launch` finds after a logout: no agent.
         #[tokio::test]
         async fn phone_locked_agent_does_not_come_back_after_logout() {
+            let _pairing = PAIRING_TESTS.lock().await;
             let tmp = tempfile::tempdir().unwrap();
             let dir = tmp.path().join("phone-sign");
             let socket = tmp.path().join("agent.sock");

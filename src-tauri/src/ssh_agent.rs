@@ -2127,10 +2127,6 @@ mod unix {
 
     #[cfg(test)]
     mod tests {
-        // Both tests below are Linux-only (peer credentials + /proc), so
-        // the glob import must be gated the same way or it is unused —
-        // an error under `-D warnings` — on macOS.
-        #[cfg(target_os = "linux")]
         use super::*;
 
         /// Both ends of a socketpair live in this test process, so the
