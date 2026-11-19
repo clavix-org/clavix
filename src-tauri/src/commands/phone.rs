@@ -71,8 +71,9 @@ mod imp {
     use super::*;
     use crate::phone_approval::{NoPhone, PhoneApprover};
     use crate::phone_relay::{ApproveChannel, ApproveOffer, PairedDevice, RelayPhone};
-    use clavix_approve_core::relay::RelayError;
+    use clavix_approve_core::relay::{RelayClient, RelayError};
     use clavix_core::crypto::{decrypt_name, encrypt_string};
+    use clavix_core::error::PhoneErrorKind;
     use clavix_core::store;
 
     /// How long `phone_pair_wait` waits: just under the relay's 15 min.
@@ -94,31 +95,51 @@ mod imp {
     /// Cleared with the approver when the vault locks.
     static CHANNEL: Mutex<Option<ApproveChannel>> = Mutex::new(None);
 
-    fn relay_error(e: impl std::fmt::Display) -> Error {
-        Error::InvalidResponse {
-            reason: format!("phone relay: {e}"),
+    pub(crate) fn phone_error(kind: PhoneErrorKind, reason: impl std::fmt::Display) -> Error {
+        Error::Phone {
+            kind,
+            reason: reason.to_string(),
         }
     }
 
-    /// The error of a call to the relay at `relay`. One that never got an
-    /// answer (DNS, connection refused, TLS, timeout) is reported as the
-    /// relay being unreachable, with its address; anything else is what
-    /// the relay answered.
+    /// No pairing in progress (any more): cancelled, expired, replaced.
+    pub(crate) fn no_pairing(reason: &str) -> Error {
+        phone_error(PhoneErrorKind::NoPairing, reason)
+    }
+
+    /// The relay address as `clavix-approve-core` will accept it, or why
+    /// not. Checked here, before any call, so that a bad address is
+    /// reported as such.
+    pub(crate) fn relay_client(relay: &str) -> Result<RelayClient> {
+        RelayClient::new(relay).map_err(|e| phone_error(PhoneErrorKind::BadRelayUrl, e))
+    }
+
+    /// The error of a call to the relay at `relay`:
+    /// - no answer at all (DNS, connection refused, TLS, timeout): the
+    ///   relay is unreachable, named by its address;
+    /// - HTTP 401 or 403: the relay refused the credentials;
+    /// - anything else: what the relay answered.
     ///
     /// The pairing calls of `clavix-approve-core` return their errors as
-    /// text, so a transport failure is recognised by how the crate words
-    /// `RelayError::Transport`. The wording is asked from the crate rather
-    /// than copied here, so that a crate update cannot silently undo this.
+    /// text, so the first two are recognised by how the crate words
+    /// `RelayError`. The wording is asked from the crate rather than
+    /// copied here, so that a crate update cannot silently undo this.
     pub(crate) fn relay_call_error(relay: &str, e: impl std::fmt::Display) -> Error {
         let text = e.to_string();
         let unreachable = RelayError::Transport(String::new()).to_string();
-        match text.strip_prefix(&unreachable) {
-            Some(cause) => Error::RelayUnreachable {
+        if let Some(cause) = text.strip_prefix(&unreachable) {
+            return Error::RelayUnreachable {
                 url: relay.to_string(),
                 cause: cause.to_string(),
-            },
-            None => relay_error(text),
+            };
         }
+        let rejected = [401, 403].map(|code| RelayError::Status(code).to_string());
+        let kind = if rejected.contains(&text) {
+            PhoneErrorKind::Rejected
+        } else {
+            PhoneErrorKind::Relay
+        };
+        phone_error(kind, text)
     }
 
     /// Run `f` with the user key, which exists only while unlocked (and
@@ -226,6 +247,7 @@ mod imp {
             Some(c) => c.relay.clone(),
             None => relay.trim().to_string(),
         };
+        relay_client(&relay)?;
         let offer = match &existing {
             // One more phone on the same channel (and relay).
             Some(c) => ApproveOffer::add_device(c).await,
@@ -255,21 +277,26 @@ mod imp {
             let slot = PAIRING.lock();
             let p = slot
                 .as_ref()
-                .ok_or_else(|| relay_error("no pairing in progress"))?;
+                .ok_or_else(|| no_pairing("no pairing in progress"))?;
             (p.offer.clone(), p.relay.clone(), p.cancel.clone())
         };
         let paired = tokio::select! {
             r = offer.wait(PAIR_WAIT) => r.map_err(|e| relay_call_error(&relay, e))?,
-            _ = cancel.notified() => return Err(relay_error("pairing cancelled")),
+            _ = cancel.notified() => return Err(no_pairing("pairing cancelled")),
         };
-        drop(offer);
         let out = PhonePairCandidate {
             digits: paired.digits.clone(),
             device_name: paired.device.name().to_string(),
         };
-        if let Some(p) = PAIRING.lock().as_mut() {
-            p.candidate = Some(paired);
+        // Only for the pairing this wait belongs to: it may have been
+        // cancelled, or replaced by a new one, while the phone answered.
+        let mut slot = PAIRING.lock();
+        match slot.as_mut() {
+            Some(p) if Arc::ptr_eq(&p.offer, &offer) => p.candidate = Some(paired),
+            _ => return Err(no_pairing("pairing cancelled")),
         }
+        drop(slot);
+        drop(offer);
         Ok(out)
     }
 
@@ -278,17 +305,25 @@ mod imp {
         let pairing = PAIRING
             .lock()
             .take()
-            .ok_or_else(|| relay_error("no pairing in progress"))?;
+            .ok_or_else(|| no_pairing("no pairing in progress"))?;
         let device = pairing
             .candidate
-            .ok_or_else(|| relay_error("no phone answered yet"))?;
+            .ok_or_else(|| no_pairing("no phone answered yet"))?;
         let channel = match pairing.existing {
-            Some(mut c) => {
-                c.devices.push(device.device);
-                c
+            // One more phone: added to the channel as it is now, not as
+            // it was when the code was shown. If the pairing was
+            // forgotten in between, it must not come back.
+            Some(snapshot) => {
+                let mut current = CHANNEL
+                    .lock()
+                    .clone()
+                    .filter(|c| c.ch == snapshot.ch)
+                    .ok_or_else(|| no_pairing("the pairing was forgotten meanwhile"))?;
+                current.devices.push(device.device);
+                current
             }
             None => Arc::try_unwrap(pairing.offer)
-                .map_err(|_| relay_error("pairing still in use"))?
+                .map_err(|_| no_pairing("pairing still in use"))?
                 .into_channel(device.device),
         };
         save_channel(state, Some(&channel))?;
@@ -308,6 +343,8 @@ mod imp {
     /// Revoke the pairing on the relay and forget it here. Forgotten
     /// locally even when the relay cannot be reached.
     pub async fn forget(state: &AppState) -> Result<PhoneStatus> {
+        // A phone being added to this pairing has nothing left to join.
+        pair_cancel();
         let channel = CHANNEL.lock().clone();
         if let Some(c) = &channel {
             if let Err(e) = c.revoke().await {
@@ -352,20 +389,47 @@ mod imp {
         }
 
         #[test]
-        fn what_the_relay_answered_is_still_an_invalid_response() {
-            let answers: [Box<dyn std::fmt::Display>; 4] = [
-                Box::new(RelayError::Status(503)),
-                Box::new(RelayError::Protocol("not JSON".into())),
-                Box::new(rq::Error::Revoked),
-                Box::new("nobody entered the pairing code in time"),
+        fn what_the_relay_answered_is_a_phone_error_never_an_invalid_response() {
+            use PhoneErrorKind::{Rejected, Relay};
+            let answers: [(Box<dyn std::fmt::Display>, PhoneErrorKind); 7] = [
+                (Box::new(RelayError::Status(503)), Relay),
+                (Box::new(RelayError::Protocol("not JSON".into())), Relay),
+                (Box::new(rq::Error::Revoked), Relay),
+                (Box::new("nobody entered the pairing code in time"), Relay),
+                // A wrong enrolment secret, typed and as the pairing
+                // calls word it.
+                (Box::new(RelayError::Status(401)), Rejected),
+                (Box::new(RelayError::Status(403).to_string()), Rejected),
+                (Box::new(RelayError::Status(404)), Relay),
             ];
-            for e in answers {
+            for (e, expected) in answers {
                 let text = e.to_string();
                 match relay_call_error(RELAY, e) {
-                    Error::InvalidResponse { reason } => assert!(reason.ends_with(&text)),
-                    other => panic!("expected InvalidResponse, got {other:?}"),
+                    Error::Phone { kind, reason } => {
+                        assert_eq!(kind, expected, "{text}");
+                        assert_eq!(reason, text);
+                    }
+                    other => panic!("expected a phone error, got {other:?}"),
                 }
             }
+        }
+
+        #[test]
+        fn a_relay_address_that_cannot_be_used_is_reported_as_such() {
+            for bad in ["not a url", "http://relay.example", "ftp://relay.example"] {
+                assert!(
+                    matches!(
+                        relay_client(bad),
+                        Err(Error::Phone {
+                            kind: PhoneErrorKind::BadRelayUrl,
+                            ..
+                        })
+                    ),
+                    "{bad}"
+                );
+            }
+            assert!(relay_client("https://relay.example").is_ok());
+            assert!(relay_client("http://127.0.0.1:8080").is_ok());
         }
 
         /// Nothing listens on the port: the real crate, the real error.
@@ -386,7 +450,7 @@ mod imp {
 }
 
 #[cfg(feature = "phone-approval")]
-pub(crate) use imp::{qr_svg, relay_call_error};
+pub(crate) use imp::{no_pairing, phone_error, qr_svg, relay_call_error, relay_client};
 
 /// Load the stored pairing (vault just unlocked). No-op without the
 /// feature.
