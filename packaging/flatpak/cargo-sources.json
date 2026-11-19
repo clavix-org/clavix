@@ -2,8 +2,8 @@
     {
         "type": "git",
         "url": "https://github.com/clavix-org/clavix-approve",
-        "commit": "e98211ec7a28e126b053b501a3e94e5f94fa86c4",
-        "dest": "flatpak-cargo/git/clavix-approve-e98211e"
+        "commit": "23610a2e54c74887a9a88786094a0856aebc7015",
+        "dest": "flatpak-cargo/git/clavix-approve-23610a2"
     },
     {
         "type": "archive",
@@ -1139,12 +1139,12 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/clavix-approve-e98211e/core\" \"cargo/vendor/clavix-approve-core\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/clavix-approve-23610a2/core\" \"cargo/vendor/clavix-approve-core\""
         ]
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"clavix-approve-core\"\nversion = \"0.1.0\"\ndescription = \"Clavix Approve protocol: sealed channel, pairing, relay client, and the requester of approve mode\"\nedition = \"2021\"\nrust-version = \"1.95\"\nlicense = \"GPL-3.0-or-later\"\npublish = false\n\n[dependencies]\nsignature = \"2\"\nserde_json = \"1\"\nbase64 = \"0.22\"\nsha2 = \"0.10\"\nhkdf = \"0.12\"\nrand = \"0.8\"\ned25519-dalek = \"2\"\nhmac = \"0.12\"\n\n[dependencies.ssh-key]\nversion = \"0.6\"\ndefault-features = false\nfeatures = [\"alloc\", \"ed25519\", \"rsa\", \"p256\", \"p384\", \"p521\"]\n\n[dependencies.tokio]\nversion = \"1\"\nfeatures = [\"time\", \"sync\", \"macros\", \"rt\"]\n\n[dependencies.reqwest]\nversion = \"0.12\"\ndefault-features = false\nfeatures = [\"rustls-tls\", \"json\"]\n\n[dependencies.serde]\nversion = \"1\"\nfeatures = [\"derive\"]\n\n[dependencies.hpke]\nversion = \"0.15\"\ndefault-features = false\nfeatures = [\"alloc\", \"getrandom\", \"nistp\", \"aes\"]\n\n[dev-dependencies]\ntempfile = \"3\"\n\n[dev-dependencies.tokio]\nversion = \"1\"\nfeatures = [\"rt-multi-thread\", \"macros\", \"time\"]\n",
+        "contents": "[package]\nname = \"clavix-approve-core\"\nversion = \"0.1.0\"\ndescription = \"Clavix Approve protocol: sealed channel, pairing, relay client, and the requesters of approve and sign mode\"\nedition = \"2021\"\nrust-version = \"1.95\"\nlicense = \"GPL-3.0-or-later\"\npublish = false\n\n[dependencies]\nsignature = \"2\"\nserde_json = \"1\"\nbase64 = \"0.22\"\nsha2 = \"0.10\"\nhkdf = \"0.12\"\nrand = \"0.8\"\ned25519-dalek = \"2\"\nhmac = \"0.12\"\n\n[dependencies.ssh-key]\nversion = \"0.6\"\ndefault-features = false\nfeatures = [\"alloc\", \"ed25519\", \"rsa\", \"p256\", \"p384\", \"p521\"]\n\n[dependencies.tokio]\nversion = \"1\"\nfeatures = [\"time\", \"sync\", \"macros\", \"rt\"]\n\n[dependencies.reqwest]\nversion = \"0.12\"\ndefault-features = false\nfeatures = [\"rustls-tls\", \"json\"]\n\n[dependencies.serde]\nversion = \"1\"\nfeatures = [\"derive\"]\n\n[dependencies.hpke]\nversion = \"0.15\"\ndefault-features = false\nfeatures = [\"alloc\", \"getrandom\", \"nistp\", \"aes\"]\n\n[dev-dependencies]\ntempfile = \"3\"\n\n[dev-dependencies.tokio]\nversion = \"1\"\nfeatures = [\"rt-multi-thread\", \"macros\", \"time\"]\n",
         "dest": "cargo/vendor/clavix-approve-core",
         "dest-filename": "Cargo.toml"
     },
@@ -9801,7 +9801,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/clavix-org/clavix-approve\"]\ngit = \"https://github.com/clavix-org/clavix-approve\"\nreplace-with = \"vendored-sources\"\nrev = \"e98211e\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/clavix-org/clavix-approve\"]\ngit = \"https://github.com/clavix-org/clavix-approve\"\nreplace-with = \"vendored-sources\"\nrev = \"23610a2\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }
