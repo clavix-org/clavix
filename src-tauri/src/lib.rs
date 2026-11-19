@@ -182,6 +182,9 @@ pub fn run() {
             // sole owner of the screen-lock trigger — the renderer has no
             // way to see the session lock. See `auto_lock` for cadences.
             auto_lock::spawn(app.handle());
+            // The vault starts locked: offer the phone's key meanwhile, if
+            // the user paired one for that (`phone-approval` feature).
+            commands::phone_sign::at_launch(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

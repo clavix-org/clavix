@@ -538,6 +538,12 @@ pub(crate) mod imp {
         }
     }
 
+    /// The locked-vault agent for the pairing stored in `dir`: after a
+    /// lock, and at launch (Clavix starts with the vault locked).
+    pub async fn ensure_locked_agent_from(state: &AppState, socket: PathBuf, dir: &Path) {
+        ensure_locked_agent_with(state, socket, || locked_agent_keys(dir)).await;
+    }
+
     pub async fn ensure_locked_agent(app: AppHandle) {
         use tauri::Manager;
         let state = app.state::<AppState>();
@@ -548,7 +554,7 @@ pub(crate) mod imp {
                 return;
             }
         };
-        ensure_locked_agent_with(&state, socket, || locked_agent_keys(&dir)).await;
+        ensure_locked_agent_from(&state, socket, &dir).await;
     }
 
     #[cfg(test)]
@@ -755,6 +761,49 @@ pub(crate) mod imp {
             vault.stop().await;
         }
 
+        /// What `at_launch` runs: the stored pairing and switch decide.
+        #[tokio::test]
+        async fn phone_locked_agent_at_launch_follows_the_stored_pairing() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("phone-sign");
+            let socket = tmp.path().join("agent.sock");
+
+            // Not paired: nothing.
+            let state = AppState::default();
+            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            assert!(state.locked_agent.lock().is_none());
+
+            // Paired, switch off: nothing.
+            save_pairing(&dir, &sample_state()).unwrap();
+            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            assert!(state.locked_agent.lock().is_none());
+            assert!(!socket.exists());
+
+            // Paired and on, but a session already unlocked: nothing.
+            save_options(
+                &dir,
+                Options {
+                    use_when_locked: true,
+                },
+            )
+            .unwrap();
+            let unlocked = AppState::default();
+            unlock(&unlocked);
+            ensure_locked_agent_from(&unlocked, socket.clone(), &dir).await;
+            assert!(unlocked.locked_agent.lock().is_none());
+            assert!(!socket.exists());
+
+            // Paired and on, vault locked: the phone's key is offered.
+            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            assert!(state.locked_agent.lock().is_some());
+            assert_eq!(listed(&socket).await, vec!["iphone".to_string()]);
+
+            // And the first unlock stops it.
+            unlock(&state);
+            assert!(state.locked_agent.lock().is_none());
+            assert!(!socket.exists());
+        }
+
         #[tokio::test]
         async fn logout_stops_the_phone_locked_agent() {
             let tmp = tempfile::tempdir().unwrap();
@@ -796,6 +845,17 @@ pub(crate) async fn stop_locked_agent(state: &AppState) {
 pub(crate) fn after_vault_lock(_app: &AppHandle) {
     #[cfg(feature = "phone-approval")]
     tauri::async_runtime::spawn(imp::ensure_locked_agent(_app.clone()));
+}
+
+/// Clavix starts with the vault locked: same as after a lock, under the
+/// same conditions (a sign-mode pairing, its switch on, no session, no
+/// vault agent, one transition at a time). Like `after_vault_lock`, it
+/// follows only the phone block's own switch: whether the vault agent
+/// starts on unlock is a front-end preference about vault keys, which
+/// this agent never holds. Runs in the background; a no-op without the
+/// feature.
+pub(crate) fn at_launch(app: &AppHandle) {
+    after_vault_lock(app);
 }
 
 #[cfg_attr(not(feature = "phone-approval"), allow(dead_code))]

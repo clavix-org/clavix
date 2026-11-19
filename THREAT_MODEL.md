@@ -272,7 +272,7 @@ Same feature flag, off by default, and a separate opt-in: a second pairing, in t
 
 What does not change: **a locked session holds no keys.** Every lock path (manual, tray, auto-lock) stops the vault agent and drops the vault keys, exactly as before. Nothing in this section keeps a vault key, or anything derived from one, in memory.
 
-What happens instead, on a lock (not on logout, which stops everything), if a phone is paired in sign mode and "use it when the vault is locked" is on:
+What happens instead, on a lock and at launch (Clavix starts locked), but not on logout, which stops everything, if a phone is paired in sign mode and "use it when the vault is locked" is on:
 
 - Clavix starts a key-less agent on the same socket. Its only keys are the phones' public keys; each signature is made **on the phone**, with its own key (Secure Enclave), after the user approved there with biometrics. The phone's public key must be in the servers' `authorized_keys`: the user installs it, Clavix shows it after pairing.
 - No local dialog: the vault is locked and there is no window to answer. The phone is the confirmation, for every signature.
