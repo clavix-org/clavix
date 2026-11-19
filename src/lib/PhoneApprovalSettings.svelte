@@ -38,8 +38,9 @@
   onMount(() => {
     refresh();
     return () => {
-      // Leaving the dialog mid-pairing: stop waiting on the relay.
-      if (offer && !candidate) api.phonePairCancel().catch(() => {});
+      // Leaving the dialog mid-pairing: stop waiting on the relay, and
+      // take a phone that answered but was never confirmed off it again.
+      if (offer) api.phonePairCancel().catch(() => {});
     };
   });
 
@@ -134,7 +135,13 @@
             {/each}
           </ul>
           <span class="hint">{status.relay}</span>
+          {#if status.outdated}
+            <p class="hint phone-approval-warning phone-approval-outdated" role="alert">
+              {m.phone_approval_outdated()}
+            </p>
+          {/if}
         </dd>
+        {#if !status.outdated}
         <dt>{m.phone_approval_ask()}</dt>
         <dd>
           <label class="ssh-agent-autostart">
@@ -166,6 +173,7 @@
           />
           <p class="hint">{m.phone_approval_delay_hint()}</p>
         </dd>
+        {/if}
       </dl>
       <p class="hint">{m.phone_approval_locked_vault()}</p>
     {/if}
@@ -212,7 +220,8 @@
         </label>
         <label>
           {m.phone_approval_enroll_secret()}
-          <PasswordInput bind:value={enrollSecret} autocomplete="off" required disabled={busy} />
+          <PasswordInput bind:value={enrollSecret} autocomplete="off" disabled={busy} />
+          <span class="hint">{m.phone_approval_enroll_secret_hint()}</span>
         </label>
         <label>
           {m.phone_approval_label()}
@@ -238,9 +247,11 @@
           <button type="button" class="secondary" onclick={forget} disabled={busy}>
             {m.phone_approval_forget()}
           </button>
-          <button type="button" class="secondary" onclick={startPairing} disabled={busy}>
-            {m.phone_approval_add()}
-          </button>
+          {#if !status.outdated}
+            <button type="button" class="secondary" onclick={startPairing} disabled={busy}>
+              {m.phone_approval_add()}
+            </button>
+          {/if}
         {:else}
           <button type="button" onclick={() => (pairing = true)} disabled={busy}>
             {m.phone_approval_pair()}

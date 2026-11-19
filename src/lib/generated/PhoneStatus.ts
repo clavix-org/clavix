@@ -10,6 +10,12 @@ available: boolean,
  */
 paired: boolean, 
 /**
+ * The loaded pairing predates the current pairing protocol: the
+ * phone no longer honours it, so it is not used. Forget it and pair
+ * again.
+ */
+outdated: boolean, 
+/**
  * Names the paired devices gave themselves.
  */
 devices: Array<string>, 

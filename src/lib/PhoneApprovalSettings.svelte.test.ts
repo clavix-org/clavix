@@ -16,10 +16,11 @@ vi.mock("./api", () => ({ api: apiMock }));
 
 import PhoneApprovalSettings from "./PhoneApprovalSettings.svelte";
 
-const UNPAIRED = { available: true, paired: false, devices: [], relay: null };
+const UNPAIRED = { available: true, paired: false, outdated: false, devices: [], relay: null };
 const PAIRED = {
   available: true,
   paired: true,
+  outdated: false,
   devices: ["iPhone"],
   relay: "https://approve.clavix.org",
 };
@@ -87,7 +88,11 @@ describe("PhoneApprovalSettings", () => {
     await fireEvent.input(inputs[1], { target: { value: "secret" } });
     await fireEvent.input(inputs[2], { target: { value: "desk" } });
 
-    apiMock.phonePairStart.mockResolvedValue({ code: "cva1-x", link: "https://r/#cva1-x", qrSvg: "<svg></svg>" });
+    apiMock.phonePairStart.mockResolvedValue({
+      code: "cva2-x",
+      link: "clavix-approve://pair?relay=https://r#cva2-x",
+      qrSvg: "<svg></svg>",
+    });
     apiMock.phonePairWait.mockResolvedValue({ digits: "042 917", deviceName: "iPhone" });
     apiMock.phonePairConfirm.mockResolvedValue(PAIRED);
     await fireEvent.submit(document.querySelector(".phone-approval-form") as HTMLFormElement);
@@ -109,11 +114,27 @@ describe("PhoneApprovalSettings", () => {
     await flush();
     apiMock.phonePairStart.mockResolvedValue({ code: "c", link: "l", qrSvg: "<svg></svg>" });
     apiMock.phonePairWait.mockResolvedValue({ digits: "111 111", deviceName: "x" });
+    // Open enrolment: the secret is optional, and left empty here.
+    const inputs = document.querySelectorAll<HTMLInputElement>(".phone-approval-form input");
+    expect(inputs[1].required).toBe(false);
+    await fireEvent.input(inputs[2], { target: { value: "desk" } });
     await fireEvent.submit(document.querySelector(".phone-approval-form") as HTMLFormElement);
     await flush();
+    expect(apiMock.phonePairStart).toHaveBeenCalledWith("https://approve.clavix.org", "", "desk");
     await fireEvent.click(button(/Différents|Different/));
     await flush();
     expect(apiMock.phonePairCancel).toHaveBeenCalled();
     expect(apiMock.phonePairConfirm).not.toHaveBeenCalled();
+  });
+
+  it("only offers to forget a pairing made before pairing version 2", async () => {
+    setup({ ...PAIRED, outdated: true });
+    await flush();
+    expect(document.querySelector(".phone-approval-outdated")?.textContent).toMatch(
+      /appairez de nouveau|pair the phone again/,
+    );
+    expect(document.querySelector("#phone-approval-delay")).toBeNull();
+    expect(button(/Appairer un autre|Pair another/)).toBeUndefined();
+    expect(button(/Oublier|Forget/)).toBeDefined();
   });
 });

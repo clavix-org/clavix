@@ -54,6 +54,10 @@ pub struct PhoneSignStatus {
     pub available: bool,
     /// At least one phone is paired in sign mode.
     pub paired: bool,
+    /// The pairing predates the current pairing protocol: the phone no
+    /// longer honours it, so its keys are not offered. Forget it and pair
+    /// again.
+    pub outdated: bool,
     /// In the order their keys are offered to `ssh`.
     pub devices: Vec<PhoneSignDevice>,
     pub relay: Option<String>,
@@ -106,12 +110,14 @@ pub(crate) mod imp {
     use serde::{Deserialize, Serialize};
     use tokio::sync::Notify;
 
-    use super::super::phone::{no_pairing, phone_error, relay_call_error, relay_client};
+    use super::super::phone::{no_pairing, outdated, phone_error, relay_call_error, relay_client};
     use super::*;
     use crate::phone_sign_relay::RelayPhoneSigner;
     use crate::ssh_agent::{self, AgentKey, SignGuard, SignPolicy};
     use clavix_approve_core::bytes::b64u;
-    use clavix_approve_core::pairing::{pairing_url, Offer, Paired, PAIRING_WINDOW};
+    use clavix_approve_core::pairing::{
+        pairing_url, Offer, Paired, PAIRING_VERSION, PAIRING_WINDOW,
+    };
     use clavix_approve_core::relay::{revoke, revoke_device, RelayClient};
     use clavix_approve_core::state::{self as core_state, State as Pairing};
     use clavix_core::error::PhoneErrorKind;
@@ -129,11 +135,44 @@ pub(crate) mod imp {
             })
     }
 
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct Options {
         #[serde(default)]
         pub use_when_locked: bool,
+        /// The pairing protocol version the stored pairing was made with.
+        /// Absent from the options written before it was recorded: those
+        /// pairings are of version 1.
+        #[serde(default = "first_pairing_version")]
+        pub pairing_version: u64,
+    }
+
+    fn first_pairing_version() -> u64 {
+        1
+    }
+
+    impl Default for Options {
+        fn default() -> Self {
+            Self {
+                use_when_locked: false,
+                pairing_version: first_pairing_version(),
+            }
+        }
+    }
+
+    impl Options {
+        /// For a pairing made now.
+        pub fn current(use_when_locked: bool) -> Self {
+            Self {
+                use_when_locked,
+                pairing_version: PAIRING_VERSION,
+            }
+        }
+
+        /// The phone no longer honours a pairing of an earlier protocol.
+        pub fn outdated(&self) -> bool {
+            self.pairing_version < PAIRING_VERSION
+        }
     }
 
     fn storage_error(dir: &Path, e: impl std::fmt::Display) -> Error {
@@ -210,9 +249,11 @@ pub(crate) mod imp {
 
     pub fn status(dir: &Path, locked_agent_running: bool) -> PhoneSignStatus {
         let pairing = load_pairing(dir);
+        let options = load_options(dir);
         PhoneSignStatus {
             available: true,
             paired: pairing.is_some(),
+            outdated: pairing.is_some() && options.outdated(),
             devices: pairing
                 .as_ref()
                 .map(|p| {
@@ -229,7 +270,7 @@ pub(crate) mod imp {
                 .unwrap_or_default(),
             relay: pairing.as_ref().map(|p| p.relay.clone()),
             label: pairing.as_ref().map(|p| p.label.clone()),
-            use_when_locked: pairing.is_some() && load_options(dir).use_when_locked,
+            use_when_locked: pairing.is_some() && options.use_when_locked,
             locked_agent_running,
         }
     }
@@ -257,6 +298,9 @@ pub(crate) mod imp {
         label: String,
     ) -> Result<PhonePairOffer> {
         let existing = load_pairing(dir);
+        if existing.is_some() && load_options(dir).outdated() {
+            return Err(outdated());
+        }
         let (offer, client, relay, label) = match &existing {
             // One more phone on the same channel (`clavix-agent pair --add`).
             Some(p) => {
@@ -273,6 +317,8 @@ pub(crate) mod imp {
                 let label = label.trim().to_string();
                 let client = relay_client(&relay)?;
                 let offer = Offer::new();
+                // The enrolment secret is the relay's own admission
+                // secret: empty for a relay with open enrolment.
                 offer
                     .open(&client, enroll_secret.trim(), &label)
                     .await
@@ -295,7 +341,7 @@ pub(crate) mod imp {
             candidate: None,
             cancel: Arc::new(Notify::new()),
         }) {
-            old.cancel.notify_waiters();
+            discard(old);
         }
         Ok(out)
     }
@@ -398,13 +444,7 @@ pub(crate) mod imp {
                 save_pairing(dir, &fresh)?;
                 // Pairing for this purpose is opting in; the switch is
                 // there to turn it off.
-                save_options(
-                    dir,
-                    Options {
-                        use_when_locked: true,
-                    },
-                )
-                .map_err(|e| storage_error(dir, e))?;
+                save_options(dir, Options::current(true)).map_err(|e| storage_error(dir, e))?;
                 false
             }
         };
@@ -419,9 +459,13 @@ pub(crate) mod imp {
     /// is taken off the relay again (best effort), so it does not believe
     /// itself paired.
     pub fn pair_cancel() {
-        let Some(p) = PAIRING.lock().take() else {
-            return;
-        };
+        let pairing = PAIRING.lock().take();
+        if let Some(p) = pairing {
+            discard(p);
+        }
+    }
+
+    fn discard(p: InProgress) {
         p.cancel.notify_waiters();
         let Some(candidate) = p.candidate else {
             return;
@@ -488,13 +532,11 @@ pub(crate) mod imp {
         if load_pairing(dir).is_none() {
             return Err(not_paired("no phone is paired"));
         }
-        save_options(
-            dir,
-            Options {
-                use_when_locked: enabled,
-            },
-        )
-        .map_err(|e| storage_error(dir, e))?;
+        let options = Options {
+            use_when_locked: enabled,
+            ..load_options(dir)
+        };
+        save_options(dir, options).map_err(|e| storage_error(dir, e))?;
         Ok(status(dir, locked_agent_running))
     }
 
@@ -503,10 +545,18 @@ pub(crate) mod imp {
     /// The keys the locked-vault agent should offer: the paired phones',
     /// if the user wants them used while locked. `None`: no agent.
     pub fn locked_agent_keys(dir: &Path) -> Option<Vec<AgentKey>> {
-        if !load_options(dir).use_when_locked {
+        let options = load_options(dir);
+        if !options.use_when_locked {
             return None;
         }
         let pairing = load_pairing(dir)?;
+        if options.outdated() {
+            eprintln!(
+                "[clavix agent] the phone pairing predates the current pairing protocol, no \
+                 agent while locked: forget it and pair again in Settings, SSH"
+            );
+            return None;
+        }
         match RelayPhoneSigner::from_state(&pairing).and_then(|s| s.agent_keys()) {
             Ok(keys) if !keys.is_empty() => Some(keys),
             Ok(_) => None,
@@ -548,7 +598,7 @@ pub(crate) mod imp {
             };
             if let Err(e) = outcome {
                 eprintln!(
-                    "[clavix phone] pairing removed here at logout, but not revoked on the                      relay: {e}"
+                    "[clavix phone] pairing removed here at logout, but not revoked on the relay: {e}"
                 );
             }
         });
@@ -687,13 +737,7 @@ pub(crate) mod imp {
             let tmp = tempfile::tempdir().unwrap();
             let dir = tmp.path().join("clavix").join("phone-sign");
             save_pairing(&dir, &sample_state()).unwrap();
-            save_options(
-                &dir,
-                Options {
-                    use_when_locked: true,
-                },
-            )
-            .unwrap();
+            save_options(&dir, Options::current(true)).unwrap();
             let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode(&dir), 0o700);
             assert_eq!(mode(&dir.join("state.json")), 0o600);
@@ -723,6 +767,45 @@ pub(crate) mod imp {
             assert!(on.use_when_locked);
         }
 
+        /// A pairing whose options do not say which pairing protocol made
+        /// it predates version 2: shown, never used, and not extended.
+        #[tokio::test]
+        async fn a_phone_sign_pairing_from_before_pairing_v2_is_outdated() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path();
+            save_pairing(dir, &sample_state()).unwrap();
+            std::fs::write(dir.join(OPTIONS_FILE), br#"{"useWhenLocked":true}"#).unwrap();
+
+            let old = status(dir, false);
+            assert!(old.paired && old.outdated && old.use_when_locked);
+            assert_eq!(old.devices.len(), 1, "still listed, to be forgotten");
+            assert!(locked_agent_keys(dir).is_none(), "its keys are not offered");
+            assert!(matches!(
+                pair_start(dir, String::new(), String::new(), String::new()).await,
+                Err(Error::Phone {
+                    kind: PhoneErrorKind::Outdated,
+                    ..
+                })
+            ));
+            // The switch keeps what is known of the pairing.
+            assert!(set_use_when_locked(dir, false, false).unwrap().outdated);
+            // No options at all (the pairing alone): version 1 too.
+            std::fs::remove_file(dir.join(OPTIONS_FILE)).unwrap();
+            assert!(status(dir, false).outdated);
+
+            // Forgetting it works without the relay, and clears the flag.
+            let id = sample_state().signers[0].id.clone();
+            let after = forget(dir, &id, true, false).await.unwrap();
+            assert!(!after.paired && !after.outdated);
+
+            // A pairing made now is current.
+            save_pairing(dir, &sample_state()).unwrap();
+            save_options(dir, Options::current(true)).unwrap();
+            assert!(!status(dir, false).outdated);
+            assert!(locked_agent_keys(dir).is_some());
+            assert!(!set_use_when_locked(dir, false, false).unwrap().outdated);
+        }
+
         #[test]
         fn phone_sign_switch_needs_a_pairing() {
             let tmp = tempfile::tempdir().unwrap();
@@ -734,13 +817,7 @@ pub(crate) mod imp {
             let tmp = tempfile::tempdir().unwrap();
             let dir = tmp.path();
             save_pairing(dir, &sample_state()).unwrap();
-            save_options(
-                dir,
-                Options {
-                    use_when_locked: true,
-                },
-            )
-            .unwrap();
+            save_options(dir, Options::current(true)).unwrap();
             assert!(forget(dir, "nope", true, false).await.is_err());
             let id = sample_state().signers[0].id.clone();
             let after = forget(dir, &id, true, false).await.unwrap();
@@ -803,13 +880,7 @@ pub(crate) mod imp {
             assert!(locked_agent_keys(dir).is_none(), "nothing paired");
             save_pairing(dir, &sample_state()).unwrap();
             assert!(locked_agent_keys(dir).is_none(), "switched off");
-            save_options(
-                dir,
-                Options {
-                    use_when_locked: true,
-                },
-            )
-            .unwrap();
+            save_options(dir, Options::current(true)).unwrap();
             let keys = locked_agent_keys(dir).expect("paired and switched on");
             assert_eq!(keys.len(), 1);
             assert_eq!(keys[0].comment, "iphone");
@@ -896,13 +967,7 @@ pub(crate) mod imp {
             assert!(!socket.exists());
 
             // Paired and on, but a session already unlocked: nothing.
-            save_options(
-                &dir,
-                Options {
-                    use_when_locked: true,
-                },
-            )
-            .unwrap();
+            save_options(&dir, Options::current(true)).unwrap();
             let unlocked = AppState::default();
             unlock(&unlocked);
             ensure_locked_agent_from(&unlocked, socket.clone(), &dir).await;
@@ -930,13 +995,7 @@ pub(crate) mod imp {
             assert!(remove_for_logout(dir).is_none(), "nothing paired");
 
             save_pairing(dir, &sample_state()).unwrap();
-            save_options(
-                dir,
-                Options {
-                    use_when_locked: true,
-                },
-            )
-            .unwrap();
+            save_options(dir, Options::current(true)).unwrap();
             assert!(locked_agent_keys(dir).is_some());
 
             let pairing = remove_for_logout(dir).expect("handed back, to revoke on the relay");
@@ -959,13 +1018,7 @@ pub(crate) mod imp {
             let dir = tmp.path().join("phone-sign");
             let socket = tmp.path().join("agent.sock");
             save_pairing(&dir, &sample_state()).unwrap();
-            save_options(
-                &dir,
-                Options {
-                    use_when_locked: true,
-                },
-            )
-            .unwrap();
+            save_options(&dir, Options::current(true)).unwrap();
             let state = AppState::default();
             ensure_locked_agent_from(&state, socket.clone(), &dir).await;
             assert!(state.locked_agent.lock().is_some());
@@ -1074,6 +1127,7 @@ pub fn phone_sign_status(_state: State<'_, AppState>) -> Result<PhoneSignStatus>
     Ok(PhoneSignStatus {
         available: false,
         paired: false,
+        outdated: false,
         devices: Vec::new(),
         relay: None,
         label: None,

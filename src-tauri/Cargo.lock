@@ -909,7 +909,7 @@ dependencies = [
 [[package]]
 name = "clavix-approve-core"
 version = "0.1.0"
-source = "git+https://github.com/clavix-org/clavix-approve?rev=23610a2#23610a2e54c74887a9a88786094a0856aebc7015"
+source = "git+https://github.com/clavix-org/clavix-approve?rev=c9c3176#c9c317677ba906791bf1fbff7319284957e9860e"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",

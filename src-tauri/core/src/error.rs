@@ -16,6 +16,15 @@ pub enum PhoneErrorKind {
     /// The relay refused the credentials (HTTP 401/403): for a new
     /// pairing, the enrolment secret.
     Rejected,
+    /// The relay no longer knows the stored pairing (revoked from the
+    /// phone, or lost by the relay): forget it and pair again.
+    Gone,
+    /// Nobody entered the pairing code before it expired.
+    Expired,
+    /// The stored pairing was made with an earlier version of the pairing
+    /// protocol, which the phone no longer honours: forget it and pair
+    /// again.
+    Outdated,
     /// The relay answered, but not what was expected: an error status, a
     /// body that is not the protocol's, a pairing answer that does not
     /// authenticate, a revocation it did not confirm.

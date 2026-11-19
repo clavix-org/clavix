@@ -11,6 +11,12 @@ available: boolean,
  */
 paired: boolean, 
 /**
+ * The pairing predates the current pairing protocol: the phone no
+ * longer honours it, so its keys are not offered. Forget it and pair
+ * again.
+ */
+outdated: boolean, 
+/**
  * In the order their keys are offered to `ssh`.
  */
 devices: Array<PhoneSignDevice>, relay: string | null, 

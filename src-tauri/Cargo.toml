@@ -64,7 +64,7 @@ serde_json = "1"
 # Clavix Approve protocol client (pairing, sealed channel, relay, proof
 # checks, sign-mode requester), pinned: it decides what counts as a phone's
 # approval or signature.
-clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "23610a2", optional = true }
+clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "c9c3176", optional = true }
 # Pairing QR code for the phone, rendered as SVG (no network, no JS dep).
 qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 # Generates the TypeScript types the WebView consumes, straight from the
