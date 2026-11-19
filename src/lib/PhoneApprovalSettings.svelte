@@ -7,6 +7,7 @@
   import { api } from "./api";
   import { formatError } from "./format";
   import PasswordInput from "./PasswordInput.svelte";
+  import { DEFAULT_PHONE_RELAY } from "./phone";
   import type { SshAgentConfirm } from "./prefs.svelte";
   import type {
     PhoneApprovalOptions,
@@ -22,15 +23,13 @@
   };
   let { options, confirmPolicy, onApply }: Props = $props();
 
-  const DEFAULT_RELAY = "https://approve.clavix.org";
-
   let status = $state<PhoneStatus | null>(null);
   let busy = $state(false);
   let error = $state<string | null>(null);
 
   // Pairing form and flow.
   let pairing = $state(false);
-  let relay = $state(DEFAULT_RELAY);
+  let relay = $state(DEFAULT_PHONE_RELAY);
   let enrollSecret = $state("");
   let label = $state("");
   let offer = $state<PhonePairOffer | null>(null);

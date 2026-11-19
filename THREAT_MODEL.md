@@ -264,7 +264,32 @@ What Clavix enforces:
 
 Accepted new risk: a signature can now happen while the user is away from the desk, which the 30 s dialog timeout used to prevent. That is the point of the feature, and each signature still needs a verification on the phone.
 
-The phone does not help once the vault is locked: the keys are gone, so there is nothing to approve. The settings say so.
+Approving does not help once the vault is locked: the keys are gone, so there is nothing to approve. The settings say so, and point to the next section.
+
+## Optional: Signing With the Phone's Key While the Vault Is Locked
+
+Same feature flag, off by default, and a separate opt-in: a second pairing, in the Clavix Approve *sign mode* (the protocol fixes a channel's mode at pairing, so it cannot be the approve-mode channel above). It is what the standalone `clavix-agent` does, built into Clavix for the time the vault is locked.
+
+What does not change: **a locked session holds no keys.** Every lock path (manual, tray, auto-lock) stops the vault agent and drops the vault keys, exactly as before. Nothing in this section keeps a vault key, or anything derived from one, in memory.
+
+What happens instead, on a lock and at launch (Clavix starts locked), but not on logout, which stops everything, if a phone is paired in sign mode and "use it when the vault is locked" is on:
+
+- Clavix starts a key-less agent on the same socket. Its only keys are the phones' public keys; each signature is made **on the phone**, with its own key (Secure Enclave), after the user approved there with biometrics. The phone's public key must be in the servers' `authorized_keys`: the user installs it, Clavix shows it after pairing.
+- No local dialog: the vault is locked and there is no window to answer. The phone is the confirmation, for every signature.
+- Only SSH user-auth requests on a connection bound with `session-bind@openssh.com`, for that very session, are sent to the phone; anything else is refused without contacting it (log line "connection has no session binding for authentication"). The phone re-verifies the request and the host's binding signature from the raw material and shows the destination under the name it pinned for the host key.
+- The signature the phone returns is checked against the phone's key before it is answered.
+- On unlock, the key-less agent stops before the vault agent starts again (or simply stops, if the vault agent does not restart on unlock).
+
+**Stored outside the vault.** It has to work while the vault is locked, so the pairing cannot be encrypted with the user key like the approve-mode one. It is kept like `clavix-agent` keeps it: the `clavix-approve-core` state file (relay URL, bearer token, this machine's channel keys, the phones' public keys) in `<config dir>/clavix/phone-sign/state.json`, plus the on/off switch in `options.json`, both 0600 in a 0700 directory (on Windows, the user profile's ACLs; the feature is not built there today). The trade-off, accepted: these secrets only let a process **ask** a paired phone for a signature. The phone shows the destination, requires biometrics, and signs with a key that never leaves it; the secrets never sign anything. A process that reads them gains what any process able to reach the agent socket already has: the ability to send the phone a request the user can refuse.
+
+| Attacker | Effect |
+|---|---|
+| A process running as the user while the vault is locked | Can use the agent socket, or the stored channel secrets, to send login requests to the phone. Each one shows its destination on the phone and needs biometrics; refusing denies, and after a denial further requests fail at once for 5 s, so a retry loop cannot turn into a stream of notifications. It cannot obtain a vault key: none is in memory. |
+| The relay or the network | Can delay or drop requests (no signature: ssh fails or tries the next key). Cannot forge a signature (it needs the phone's key) or read a request (sealed end to end). |
+| A thief with the unlocked phone | Needs the biometric check for each signature, as with `clavix-agent`. |
+| A stolen disk with the vault locked | Gets the channel secrets: it can ask the phone, as above, from a machine of its choosing, until the pairing is forgotten (Settings revokes it on the relay). |
+
+Accepted new risk: while the vault is locked, a server that trusts the phone's key can be reached with the phone's approval alone. That is the purpose of the option; turning it off, or forgetting the phone, ends it.
 
 ## Out of Scope for the Current Design
 

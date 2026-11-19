@@ -63,6 +63,17 @@ impl Default for AutoLockSetting {
 pub struct AppState {
     pub session: Mutex<Option<Session>>,
     pub ssh_agent: Mutex<Option<SshAgentHandle>>,
+    /// The agent that runs while the vault is locked: on the same socket,
+    /// offering only the keys of phones paired in sign mode, which sign on
+    /// the phone (`commands::phone_sign`). Never holds a vault key. Kept
+    /// apart from `ssh_agent` so the lock paths, which empty that slot,
+    /// cannot mistake one for the other.
+    pub locked_agent: Mutex<Option<SshAgentHandle>>,
+    /// Serializes agent starts and stops on the shared socket: a start
+    /// unlinks and rebinds the socket path and a stop unlinks it, so two
+    /// overlapping transitions could leave the wrong agent listening, or
+    /// none. Held across awaits, hence Tokio's mutex.
+    pub agent_transition: tokio::sync::Mutex<()>,
     /// In-flight SSH-agent signature confirmations, keyed by request id.
     /// The agent task parks a `oneshot::Sender` here and awaits the
     /// answer; `respond_ssh_agent_confirm` (driven by the confirmation
@@ -156,6 +167,8 @@ impl Default for AppState {
         Self {
             session: Mutex::new(None),
             ssh_agent: Mutex::new(None),
+            locked_agent: Mutex::new(None),
+            agent_transition: tokio::sync::Mutex::new(()),
             ssh_confirms: Mutex::new(HashMap::new()),
             ssh_confirm_seq: Mutex::new(0),
             phone_approver: Mutex::new(std::sync::Arc::new(crate::phone_approval::NoPhone)),

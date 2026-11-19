@@ -178,7 +178,8 @@ mod imp {
         }
     }
 
-    fn qr_svg(link: &str) -> Result<String> {
+    /// The pairing link as a QR code, an SVG document (no network).
+    pub(crate) fn qr_svg(link: &str) -> Result<String> {
         let code = qrcode::QrCode::new(link.as_bytes()).map_err(|e| Error::Storage {
             reason: format!("QR code: {e}"),
         })?;
@@ -291,6 +292,9 @@ mod imp {
         Ok(status())
     }
 }
+
+#[cfg(feature = "phone-approval")]
+pub(crate) use imp::qr_svg;
 
 /// Load the stored pairing (vault just unlocked). No-op without the
 /// feature.

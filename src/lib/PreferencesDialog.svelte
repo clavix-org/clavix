@@ -5,6 +5,7 @@
   import { formatError } from "./format";
   import PasswordInput from "./PasswordInput.svelte";
   import PhoneApprovalSettings from "./PhoneApprovalSettings.svelte";
+  import PhoneSignSettings from "./PhoneSignSettings.svelte";
   import type { SshAgentConfirm, ToolbarAlign, TrayIconStyle } from "./prefs.svelte";
   import type {
     AutoLockTrigger,
@@ -691,6 +692,7 @@
           confirmPolicy={sshAgentConfirm}
           onApply={onApplyPhoneApproval}
         />
+        <PhoneSignSettings />
       </div>
     {:else}
       <div class="prefs-panel" role="tabpanel" id="prefs-panel-yubikey" aria-labelledby="prefs-tab-yubikey">

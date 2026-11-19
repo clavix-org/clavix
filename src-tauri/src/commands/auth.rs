@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use secrecy::SecretString;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::session::{
     clear_pending_two_factor, set_pending_two_factor, store_session, store_standalone_session,
@@ -608,16 +608,16 @@ pub async fn screen_lock_available() -> bool {
 }
 
 #[tauri::command]
-pub fn lock(state: State<'_, AppState>) -> Result<()> {
+pub fn lock(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     crate::commands::ssh::stop_agent_sync(&state);
-    {
-        let mut guard = state.session.lock();
-        *guard = None;
-    }
+    let was_unlocked = state.session.lock().take().is_some();
     // A pending 2FA slot only matters for an in-flight login; once the
     // session is locked there is no scenario where we want to keep
     // those secrets around.
     clear_pending_two_factor(&state);
+    if was_unlocked {
+        crate::commands::phone_sign::after_vault_lock(&app);
+    }
     Ok(())
 }
 

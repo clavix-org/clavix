@@ -14,6 +14,8 @@ mod legacy_app_dirs;
 mod phone_approval;
 #[cfg(feature = "phone-approval")]
 mod phone_relay;
+#[cfg(feature = "phone-approval")]
+mod phone_sign_relay;
 mod screen_lock;
 // Adapts `AppState` to the engine's session slots — see the module docs.
 pub mod session;
@@ -180,6 +182,9 @@ pub fn run() {
             // sole owner of the screen-lock trigger — the renderer has no
             // way to see the session lock. See `auto_lock` for cadences.
             auto_lock::spawn(app.handle());
+            // The vault starts locked: offer the phone's key meanwhile, if
+            // the user paired one for that (`phone-approval` feature).
+            commands::phone_sign::at_launch(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -244,6 +249,13 @@ pub fn run() {
             commands::phone::phone_pair_confirm,
             commands::phone::phone_pair_cancel,
             commands::phone::phone_forget,
+            commands::phone_sign::phone_sign_status,
+            commands::phone_sign::phone_sign_pair_start,
+            commands::phone_sign::phone_sign_pair_wait,
+            commands::phone_sign::phone_sign_pair_confirm,
+            commands::phone_sign::phone_sign_pair_cancel,
+            commands::phone_sign::phone_sign_forget,
+            commands::phone_sign::phone_sign_set_use_when_locked,
             commands::ssh::decrypt_ssh_private_key,
             commands::ssh::generate_ssh_key,
             commands::ssh::ssh_auth_sock,

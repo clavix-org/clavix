@@ -33,7 +33,9 @@ default = ["update-check"]
 # binary then contains no update check at all.
 update-check = []
 # Approve SSH-agent confirmations on a paired phone, through a Clavix
-# Approve relay (src/phone_approval.rs, src/phone_relay.rs). Off by
+# Approve relay (src/phone_approval.rs, src/phone_relay.rs), and sign with
+# the phone's own key while the vault is locked (src/phone_sign_relay.rs,
+# src/commands/phone_sign.rs). Off by
 # default until the relay at approve.clavix.org is in service.
 phone-approval = ["dep:qrcode", "dep:clavix-approve-core"]
 
@@ -60,8 +62,9 @@ clavix-core = { path = "core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Clavix Approve protocol client (pairing, sealed channel, relay, proof
-# checks), pinned: it decides what counts as a phone's approval.
-clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "e98211e", optional = true }
+# checks, sign-mode requester), pinned: it decides what counts as a phone's
+# approval or signature.
+clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "23610a2", optional = true }
 # Pairing QR code for the phone, rendered as SVG (no network, no JS dep).
 qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 # Generates the TypeScript types the WebView consumes, straight from the

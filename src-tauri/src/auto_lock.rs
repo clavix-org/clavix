@@ -172,6 +172,9 @@ async fn lock_now(app: &AppHandle, reason: &str) {
     // which is exactly the "connexion perdue, plus rien ne marche"
     // dead-end users hit after a 10-min idle window.
     if locked {
+        // Only on a real lock: this function also runs, as a no-op, while
+        // logged out, where no agent of any kind may come back.
+        crate::commands::phone_sign::after_vault_lock(app);
         if let Err(e) = app.emit(crate::commands::tray::EVENT_SESSION_LOCKED, ()) {
             eprintln!("[clavix] emit session-locked after auto-lock failed (non-fatal): {e}");
         }

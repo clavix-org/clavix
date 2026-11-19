@@ -79,6 +79,9 @@ export type { PhoneApprovalOptions } from "./generated/PhoneApprovalOptions";
 export type { PhoneStatus } from "./generated/PhoneStatus";
 export type { PhonePairOffer } from "./generated/PhonePairOffer";
 export type { PhonePairCandidate } from "./generated/PhonePairCandidate";
+export type { PhoneSignStatus } from "./generated/PhoneSignStatus";
+export type { PhoneSignDevice } from "./generated/PhoneSignDevice";
+export type { PhoneSignConfirmed } from "./generated/PhoneSignConfirmed";
 
 // Auto-lock trigger (state.rs). Generated rather than hand-written for the
 // usual reason: the variant spellings are serde's, not ours — `screenLock`

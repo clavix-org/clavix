@@ -40,6 +40,13 @@ pub fn store_session(
     private_key: Option<RsaPrivateKey>,
 ) {
     core_auth::store_session(&state.session, client, tokens, user_key, private_key);
+    unlocked(state);
+}
+
+/// The vault is unlocked: the locked-vault agent, serving phone keys in
+/// its absence, stops (whether or not the vault agent starts again).
+fn unlocked(state: &AppState) {
+    crate::commands::phone_sign::stop_locked_agent_sync(state);
 }
 
 /// Park a vault that has no server behind it — an unlock that could
@@ -60,6 +67,7 @@ pub fn store_standalone_session(
         org_keys,
         vault,
     );
+    unlocked(state);
 }
 
 pub fn set_pending_two_factor(state: &AppState, pending: PendingTwoFactor) {
