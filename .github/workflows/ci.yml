@@ -66,6 +66,11 @@ jobs:
       - name: cargo clippy (no default features)
         run: cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 
+      # Phone approval is off by default until the public relay is in
+      # service, so neither step above compiles it: lint it here.
+      - name: cargo clippy (phone approval)
+        run: cargo clippy --workspace --all-targets --locked --features clavix/phone-approval -- -D warnings
+
       # `--tests` covers both lib unit tests AND integration tests
       # under `src-tauri/tests/` (refresh_token_endpoint,
       # persisted_session_disk, token_refresh_lifecycle). The previous
@@ -76,6 +81,11 @@ jobs:
       # the suite would not run at all.
       - name: cargo test (lib + integration)
         run: cargo test --workspace --tests --locked
+
+      # Only the phone-approval code is added by the feature: its tests
+      # (src/phone_approval.rs, commands/phone.rs) run on top of the above.
+      - name: cargo test (phone approval)
+        run: cargo test --tests --locked --features phone-approval phone
 
       # The TypeScript types the WebView consumes are generated from the Rust
       # ones (ts-rs). If a Rust field is renamed and the checked-in bindings
