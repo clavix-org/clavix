@@ -143,9 +143,15 @@ pub(crate) fn due(state: &AppState, now: Instant) -> Option<String> {
 async fn lock_now(app: &AppHandle, reason: &str) {
     let state = app.state::<AppState>();
     let agent = state.ssh_agent.lock().take();
+    // Like every other teardown path (`ssh::stop_agent_sync`): close the
+    // prompts first, so neither a dialog nor a phone request outlives the
+    // keys it was about.
+    crate::commands::ssh::deny_pending_confirmations(&state);
+    crate::commands::phone::unload_paired_phone(&state);
     if let Some(handle) = agent {
         handle.stop().await;
     }
+    state.ssh_skipped.lock().clear();
     // Threshold reached: also drop any pending 2FA slot so the master key
     // never survives the lock.
     crate::session::clear_pending_two_factor(&state);

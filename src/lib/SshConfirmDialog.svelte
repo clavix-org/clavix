@@ -18,6 +18,11 @@
     // last one is where the signature is headed. Empty for clients that
     // don't bind (OpenSSH < 8.9, git commit signing, PuTTY).
     hops: ConfirmHop[];
+    // How long the backend waits before denying: 30 s, or 90 s when the
+    // paired phone was asked too.
+    timeoutMs: number;
+    // The same request went to the paired phone; the first answer wins.
+    phoneAsked: boolean;
   };
 
   // Mirrors the Rust `ConfirmHop`. `host` is the known_hosts name of the
@@ -28,8 +33,9 @@
     forwarded: boolean;
   };
 
-  // Client-side auto-deny mirrors the backend's 30 s timeout so a prompt
-  // nobody answers doesn't linger with buttons that no longer do anything.
+  // Client-side auto-deny mirrors the backend's timeout (carried by each
+  // request) so a prompt nobody answers doesn't linger with buttons that
+  // no longer do anything. The fallback is the dialog-only 30 s.
   const TIMEOUT_MS = 30_000;
 
   // The dialog opens with focus on Autoriser (see `show`), which means an
@@ -54,11 +60,21 @@
 
   onMount(() => {
     let unlisten: UnlistenFn | null = null;
+    let unlistenResolved: UnlistenFn | null = null;
     listen<ConfirmReq>("ssh-agent-confirm", (event) => {
       if (current) queue.push(event.payload);
       else show(event.payload);
     }).then((un) => (unlisten = un));
-    return () => unlisten?.();
+    // Answered on the phone first: drop the prompt without answering it
+    // (the backend no longer waits for this id).
+    listen<number>("ssh-agent-confirm-resolved", (event) => {
+      if (current?.id === event.payload) dismiss();
+      else queue = queue.filter((r) => r.id !== event.payload);
+    }).then((un) => (unlistenResolved = un));
+    return () => {
+      unlisten?.();
+      unlistenResolved?.();
+    };
   });
 
   // `await tick()` before opening: `showModal()` runs the dialog's focus
@@ -72,7 +88,7 @@
   async function show(req: ConfirmReq) {
     current = req;
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => respond(false), TIMEOUT_MS);
+    timer = setTimeout(() => respond(false), req.timeoutMs || TIMEOUT_MS);
     await tick();
     // A queued request can be answered (or time out) while we await;
     // don't open a dialog for a prompt that is no longer current.
@@ -97,7 +113,8 @@
     if (armed) respond(true);
   }
 
-  async function respond(approved: boolean) {
+  // Close the current prompt and forget it, returning it.
+  function takeCurrent(): ConfirmReq | null {
     armed = false;
     if (armTimer) {
       clearTimeout(armTimer);
@@ -110,6 +127,17 @@
     const req = current;
     current = null; // clear first so the `close` handler is a no-op
     dialog?.close();
+    return req;
+  }
+
+  function dismiss() {
+    takeCurrent();
+    const next = queue.shift();
+    if (next) show(next);
+  }
+
+  async function respond(approved: boolean) {
+    const req = takeCurrent();
     if (req) {
       try {
         await api.respondSshAgentConfirm(req.id, approved);
@@ -200,6 +228,9 @@
       <p class="ssh-confirm-remote-hint">{m.ssh_confirm_remote_hint()}</p>
     {/if}
     <p class="ssh-confirm-caller-hint">{m.ssh_confirm_caller_hint()}</p>
+    {#if current.phoneAsked}
+      <p class="ssh-confirm-phone-hint">{m.ssh_confirm_phone_asked()}</p>
+    {/if}
     <div class="ssh-confirm-actions">
       <button type="button" class="secondary" onclick={() => respond(false)}>
         {m.ssh_confirm_deny()}
@@ -280,6 +311,10 @@
   .ssh-confirm-caller-hint {
     margin: -0.5rem 0 1rem;
     color: var(--text-muted);
+    font-size: 0.8rem;
+  }
+  .ssh-confirm-phone-hint {
+    margin: -0.5rem 0 1rem;
     font-size: 0.8rem;
   }
   .ssh-confirm-actions {

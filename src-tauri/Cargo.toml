@@ -32,6 +32,10 @@ default = ["update-check"]
 # `--no-default-features`: their package manager delivers updates, and the
 # binary then contains no update check at all.
 update-check = []
+# Approve SSH-agent confirmations on a paired phone, through a Clavix
+# Approve relay (src/phone_approval.rs, src/phone_relay.rs). Off by
+# default until the relay at approve.clavix.org is in service.
+phone-approval = ["dep:qrcode", "dep:clavix-approve-core"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -55,6 +59,11 @@ tauri-plugin-window-state = "2"
 clavix-core = { path = "core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Clavix Approve protocol client (pairing, sealed channel, relay, proof
+# checks), pinned: it decides what counts as a phone's approval.
+clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "e98211e", optional = true }
+# Pairing QR code for the phone, rendered as SVG (no network, no JS dep).
+qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 # Generates the TypeScript types the WebView consumes, straight from the
 # Rust definitions, serde attributes included. Hand-written mirrors had
 # silently drifted: `webauthn_challenge` shipped in snake_case while the
@@ -164,7 +173,7 @@ mockito = "1"
 # Per-test isolated XDG_DATA_HOME so the integration tests that read
 # / write session.json don't trample the dev machine.
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "test-util"] }
 # `examples/e2e_seed.rs` derives its own TOTP secrets. The app itself has
 # no use for SHA-1 any more — that moved to the engine with `totp.rs`.
 sha1 = "0.10"

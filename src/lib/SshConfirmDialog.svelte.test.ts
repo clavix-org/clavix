@@ -7,10 +7,12 @@ import { tick } from "svelte";
 // both ends are mocked so the component test needs no backend.
 const evt = vi.hoisted(() => ({
   cb: null as null | ((event: { payload: unknown }) => void),
+  resolved: null as null | ((event: { payload: unknown }) => void),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(async (_name: string, cb: (event: { payload: unknown }) => void) => {
-    evt.cb = cb;
+  listen: vi.fn(async (name: string, cb: (event: { payload: unknown }) => void) => {
+    if (name === "ssh-agent-confirm") evt.cb = cb;
+    if (name === "ssh-agent-confirm-resolved") evt.resolved = cb;
     return () => {};
   }),
 }));
@@ -44,6 +46,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   evt.cb = null;
+  evt.resolved = null;
 });
 
 const REQ = {
@@ -54,6 +57,8 @@ const REQ = {
   callerName: "git",
   callerPid: 4321,
   hops: [] as { host: string | null; fingerprint: string; forwarded: boolean }[],
+  timeoutMs: 30_000,
+  phoneAsked: false,
 };
 
 // `show()` awaits a tick before opening (so the buttons exist when focus
@@ -195,5 +200,54 @@ describe("SshConfirmDialog session-bind display", () => {
     const dest = dds[dts.indexOf("Destination")];
     expect(dest).toContain("hôte absent de known_hosts");
     expect(dest).toContain("SHA256:DEST");
+  });
+});
+
+describe("SshConfirmDialog with the phone asked too", () => {
+  function dialogOpen() {
+    return (document.querySelector("dialog") as HTMLDialogElement).open;
+  }
+
+  it("says the phone was asked, and waits the request's own timeout", async () => {
+    render(SshConfirmDialog);
+    await flush();
+    await emit({ ...REQ, timeoutMs: 90_000, phoneAsked: true });
+    expect(document.querySelector(".ssh-confirm-phone-hint")).not.toBeNull();
+    vi.advanceTimersByTime(31_000);
+    expect(apiMock.respondSshAgentConfirm).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60_000);
+    expect(apiMock.respondSshAgentConfirm).toHaveBeenCalledWith(1, false);
+  });
+
+  it("shows no phone line for a dialog-only request", async () => {
+    render(SshConfirmDialog);
+    await flush();
+    await emit();
+    expect(document.querySelector(".ssh-confirm-phone-hint")).toBeNull();
+  });
+
+  it("closes without answering when the phone answered first", async () => {
+    render(SshConfirmDialog);
+    await flush();
+    await emit({ ...REQ, phoneAsked: true });
+    expect(dialogOpen()).toBe(true);
+    evt.resolved?.({ payload: 1 });
+    await flush();
+    expect(dialogOpen()).toBe(false);
+    expect(apiMock.respondSshAgentConfirm).not.toHaveBeenCalled();
+  });
+
+  it("drops a queued request answered on the phone and moves on", async () => {
+    render(SshConfirmDialog);
+    await flush();
+    await emit({ ...REQ, id: 1 });
+    await emit({ ...REQ, id: 2, comment: "second" });
+    await emit({ ...REQ, id: 3, comment: "third" });
+    evt.resolved?.({ payload: 2 });
+    await flush();
+    buttons().deny.click();
+    await flush();
+    expect(apiMock.respondSshAgentConfirm).toHaveBeenCalledWith(1, false);
+    expect(document.querySelector(".ssh-confirm-key dd")?.textContent).toContain("third");
   });
 });

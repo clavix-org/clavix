@@ -1,5 +1,5 @@
 import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
-import type { AutoLockTrigger, Locale, ThemePref } from "./types";
+import type { AutoLockTrigger, Locale, PhoneApprovalOptions, ThemePref } from "./types";
 
 const LOCALE_STORAGE_KEY = "clavix.locale";
 const THEME_STORAGE_KEY = "clavix.theme";
@@ -18,6 +18,7 @@ const VISIBLE_COLUMNS_STORAGE_KEY = "clavix.visibleColumns";
 const REQUIRE_NARROWING_STORAGE_KEY = "clavix.requireNarrowing";
 const SSH_AGENT_CONFIRM_STORAGE_KEY = "clavix.sshAgentConfirm";
 const SSH_AGENT_AUTOSTART_STORAGE_KEY = "clavix.sshAgentAutoStart";
+const PHONE_APPROVAL_STORAGE_KEY = "clavix.phoneApproval";
 const BLUR_NOTES_STORAGE_KEY = "clavix.blurNotes";
 const SEARCH_NOTES_STORAGE_KEY = "clavix.searchNotes";
 const TOOLBAR_ALIGN_STORAGE_KEY = "clavix.toolbarAlign";
@@ -45,6 +46,27 @@ const SSH_AGENT_AUTOSTART_DEFAULT = false;
  *  per key per agent run, "always" asks every time. */
 export type SshAgentConfirm = "never" | "session" | "always";
 const SSH_AGENT_CONFIRM_DEFAULT: SshAgentConfirm = "never";
+
+/** "Ask the phone too" for SSH-agent confirmations. Off by default; the
+ *  delay is how long the dialog is up alone before the paired phone is
+ *  asked too (0 = both at once). Mirrors the Rust `PhoneApprovalOptions`. */
+const PHONE_APPROVAL_DEFAULT: PhoneApprovalOptions = { enabled: false, delayS: 0 };
+const PHONE_APPROVAL_MAX_DELAY_S = 60;
+
+function parsePhoneApproval(raw: string | null): PhoneApprovalOptions {
+  if (!raw) return { ...PHONE_APPROVAL_DEFAULT };
+  try {
+    const v = JSON.parse(raw) as Partial<PhoneApprovalOptions>;
+    // Only an explicit `true` turns it on.
+    const enabled = v.enabled === true;
+    const d = Number(v.delayS);
+    const delayS =
+      Number.isInteger(d) && d >= 0 ? Math.min(d, PHONE_APPROVAL_MAX_DELAY_S) : 0;
+    return { enabled, delayS };
+  } catch {
+    return { ...PHONE_APPROVAL_DEFAULT };
+  }
+}
 
 // On by default: opening a 3000-item vault straight onto the full list
 // puts every entry on screen at once, which is noise at best and a
@@ -103,6 +125,7 @@ export class PrefsController {
   requireNarrowing = $state<boolean>(REQUIRE_NARROWING_DEFAULT);
   sshAgentConfirm = $state<SshAgentConfirm>(SSH_AGENT_CONFIRM_DEFAULT);
   sshAgentAutoStart = $state<boolean>(SSH_AGENT_AUTOSTART_DEFAULT);
+  phoneApproval = $state<PhoneApprovalOptions>({ ...PHONE_APPROVAL_DEFAULT });
   trayIconStyle = $state<TrayIconStyle>("color");
   /** On unless the user turned it off: a malformed or absent value keeps
       notes blurred. */
@@ -225,6 +248,7 @@ export class PrefsController {
       // must never turn key exposure on by itself.
       this.sshAgentAutoStart =
         localStorage.getItem(SSH_AGENT_AUTOSTART_STORAGE_KEY) === "true";
+      this.phoneApproval = parsePhoneApproval(localStorage.getItem(PHONE_APPROVAL_STORAGE_KEY));
       this.blurNotes = localStorage.getItem(BLUR_NOTES_STORAGE_KEY) !== "false";
       this.searchNotes = localStorage.getItem(SEARCH_NOTES_STORAGE_KEY) !== "false";
       const savedAlign = localStorage.getItem(TOOLBAR_ALIGN_STORAGE_KEY);
@@ -295,6 +319,15 @@ export class PrefsController {
     this.searchNotes = value;
     try {
       localStorage.setItem(SEARCH_NOTES_STORAGE_KEY, String(value));
+    } catch {
+      // best-effort
+    }
+  }
+
+  setPhoneApproval(value: PhoneApprovalOptions) {
+    this.phoneApproval = parsePhoneApproval(JSON.stringify(value));
+    try {
+      localStorage.setItem(PHONE_APPROVAL_STORAGE_KEY, JSON.stringify(this.phoneApproval));
     } catch {
       // best-effort
     }

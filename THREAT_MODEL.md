@@ -238,6 +238,34 @@ What it explicitly does **not** change:
 - The on-server material is unchanged. No server-side key escrow,
   no extra protocol field. The wrap is purely a local convenience.
 
+## Optional: Approving SSH Signatures on a Phone
+
+Off by default, and only in builds with the `phone-approval` feature. When the SSH agent's confirmation policy asks before signing, a paired phone can answer instead of the local dialog, after a passkey user verification on the phone. The protocol and the relay are the Clavix Approve project's (its `PROTOCOL.md`, "Approve mode", and `DESKTOP_APPROVAL.md`); this section covers what Clavix adds.
+
+What does not change:
+
+- Clavix signs with the vault key, and only after an approval. The phone holds no SSH key and nothing is installed on servers.
+- Only SSH user-auth requests bound with `session-bind@openssh.com` go to the phone, since the phone re-verifies the request and its bindings from the raw material. Git commit signing and clients that don't bind keep the local dialog only.
+
+What Clavix enforces:
+
+- An approval counts only when its proof verifies under the approval key recorded at pairing, and is bound to the channel, the request id and the hash of the request as sent. Everything else (no answer, relay error, malformed or unauthentic answer) is "unavailable" and leaves the decision to the dialog. It is never an approval, and never a deny on its own.
+- The first answer wins and the other prompt is withdrawn. A deny from either side denies.
+- Session unlocked: the dialog at once, and the phone after the user's delay (0 = at once). Screen locked: the phone only, and the dialog comes back on unlock. The request may wait 90 s instead of 30 s once the phone is involved.
+- The pairing (relay URL, bearer token, channel keys, the devices' public keys) is stored in `session.json`, encrypted with the user key. It is loaded on unlock and dropped from memory on lock, logout and auto-lock, together with the vault keys. It is never sent to the Vaultwarden server.
+
+| Attacker | Effect |
+|---|---|
+| The relay or the network | Can delay or drop requests: the dialog still works, so the worst case is today's behaviour. Cannot forge an approval (it needs the phone's approval key) or replay one (bound to channel, request id and request hash). Sees metadata: channel ids, timing, sizes. |
+| A malicious page served by the relay | Could show the phone user a different destination to obtain a verification. The page's integrity is the relay operator's. |
+| A process in the desktop session | Cannot approve by faking input while the screen is locked, when the phone is the only prompt. While the session is unlocked the dialog is shown, and that process can still click it, as before. |
+| A thief with the unlocked phone | Needs the passkey's user verification for each approval. |
+| A compromised desktop | No change: it holds the keys and can sign without asking anyone. |
+
+Accepted new risk: a signature can now happen while the user is away from the desk, which the 30 s dialog timeout used to prevent. That is the point of the feature, and each signature still needs a verification on the phone.
+
+The phone does not help once the vault is locked: the keys are gone, so there is nothing to approve. The settings say so.
+
 ## Out of Scope for the Current Design
 
 The current project does not attempt to solve:

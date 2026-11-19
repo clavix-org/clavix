@@ -71,6 +71,12 @@ pub struct AppState {
     pub ssh_confirms: Mutex<HashMap<u64, tokio::sync::oneshot::Sender<bool>>>,
     /// Monotonic id source for `ssh_confirms` requests.
     pub ssh_confirm_seq: Mutex<u64>,
+    /// The paired phone that may approve signatures, or `NoPhone`. Read
+    /// at each confirmation, so pairing or forgetting a phone takes effect
+    /// without restarting the agent.
+    pub phone_approver: Mutex<std::sync::Arc<dyn crate::phone_approval::PhoneApprover>>,
+    /// "Ask the phone too" settings, pushed by the front end.
+    pub phone_options: Mutex<crate::commands::ssh::PhoneApprovalOptions>,
     /// Keys the last agent start could not load, with the reason for each.
     /// Kept here rather than on `SshAgentHandle` because it describes the
     /// vault-to-agent load, not the running agent — and because it must
@@ -152,6 +158,8 @@ impl Default for AppState {
             ssh_agent: Mutex::new(None),
             ssh_confirms: Mutex::new(HashMap::new()),
             ssh_confirm_seq: Mutex::new(0),
+            phone_approver: Mutex::new(std::sync::Arc::new(crate::phone_approval::NoPhone)),
+            phone_options: Mutex::new(Default::default()),
             ssh_skipped: Mutex::new(Vec::new()),
             last_activity: Mutex::new(Instant::now()),
             auto_lock: Mutex::new(AutoLockSetting::default()),

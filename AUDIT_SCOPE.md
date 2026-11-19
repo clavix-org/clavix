@@ -107,6 +107,7 @@ Primary files:
 
 - `src-tauri/src/ssh_agent.rs`
 - `src-tauri/src/commands/ssh.rs`
+- `src-tauri/src/phone_approval.rs`, `src-tauri/src/phone_relay.rs`, `src-tauri/src/commands/phone.rs` (approving on a paired phone, `phone-approval` feature)
 
 Review topics:
 
@@ -115,6 +116,8 @@ Review topics:
 - request framing and bounds
 - signing behavior and misuse resistance
 - lock/logout cleanup
+- phone approval: that only a verified proof becomes an approval, that a deny from either side denies, that an unreachable relay never approves, that both prompts are withdrawn on every exit path (answer, timeout, agent stop, auto-lock), and the parsing of relay responses (in `clavix-approve-core`)
+- the stored pairing: encrypted with the user key in `session.json`, dropped from memory on lock
 
 ### 5. WebAuthn / FIDO2
 

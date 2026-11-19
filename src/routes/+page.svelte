@@ -338,6 +338,11 @@
   // not trigger by hand, and an error toast on every unlock (say, on a
   // machine where the socket path is unavailable) would be noise.
   async function autoStartSshAgent() {
+    // The backend reads these at each confirmation; push them on every
+    // unlock, whether or not the agent starts by itself.
+    api.setPhoneApprovalOptions(prefs.phoneApproval).catch((e) =>
+      console.warn("[clavix] phone approval options not applied:", e),
+    );
     if (!prefs.sshAgentAutoStart) return;
     try {
       await api.startSshAgent(prefs.sshAgentConfirm);
@@ -1296,6 +1301,8 @@
   onApplyToolbarAlign={(v) => prefs.setToolbarAlign(v)}
   onApplyAutoSyncMinutes={(v) => prefs.setAutoSyncMinutes(v)}
   onApplySshAgentConfirm={(v) => prefs.setSshAgentConfirm(v)}
+  phoneApproval={prefs.phoneApproval}
+  onApplyPhoneApproval={(v) => prefs.setPhoneApproval(v)}
   onApplySshAgentAutoStart={(v) => prefs.setSshAgentAutoStart(v)}
   onCopySocketPath={copySshAgentSocket}
   onCopyShellCommand={copyShellCommand}

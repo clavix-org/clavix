@@ -11,6 +11,10 @@ import type {
   LoginResult,
   PasswordHistoryEntry,
   PasswordStrength,
+  PhoneApprovalOptions,
+  PhonePairCandidate,
+  PhonePairOffer,
+  PhoneStatus,
   SessionOrigin,
   SshAgentStatus,
   StoredAccount,
@@ -251,6 +255,15 @@ export const api = {
 
   startSshAgent: (policy: string) =>
     invoke<SshAgentStatus>("start_ssh_agent", { policy }),
+  setPhoneApprovalOptions: (options: PhoneApprovalOptions) =>
+    invoke<void>("set_phone_approval_options", { options }),
+  phoneStatus: () => invoke<PhoneStatus>("phone_status"),
+  phonePairStart: (relay: string, enrollSecret: string, label: string) =>
+    invoke<PhonePairOffer>("phone_pair_start", { relay, enrollSecret, label }),
+  phonePairWait: () => invoke<PhonePairCandidate>("phone_pair_wait"),
+  phonePairConfirm: () => invoke<PhoneStatus>("phone_pair_confirm"),
+  phonePairCancel: () => invoke<void>("phone_pair_cancel"),
+  phoneForget: () => invoke<PhoneStatus>("phone_forget"),
 
   /** Answer a pending agent signature-confirmation prompt. */
   respondSshAgentConfirm: (id: number, approved: boolean) =>
