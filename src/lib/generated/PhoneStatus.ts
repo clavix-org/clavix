@@ -2,7 +2,7 @@
 
 export type PhoneStatus = { 
 /**
- * This build can talk to a relay (`phone-approval` feature).
+ * This build can talk to a relay (`phone-approval` feature, Unix only).
  */
 available: boolean, 
 /**

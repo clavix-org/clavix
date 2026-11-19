@@ -1,6 +1,20 @@
 use std::path::Path;
 
 fn main() {
+    // The phone features exist where the `phone-approval` feature is on
+    // AND the target is Unix: `clavix-approve-core` does not build
+    // elsewhere, and the Windows agent (named pipe, Pageant) has no
+    // locked-vault counterpart. Cargo cannot make a default feature
+    // depend on the target, so the code is gated on this cfg instead of
+    // on the feature: a Windows build with default features compiles the
+    // "unavailable" side, exactly like `--no-default-features`.
+    println!("cargo:rustc-check-cfg=cfg(phone_approval)");
+    let feature = std::env::var_os("CARGO_FEATURE_PHONE_APPROVAL").is_some();
+    let unix = std::env::var_os("CARGO_CFG_UNIX").is_some();
+    if feature && unix {
+        println!("cargo:rustc-cfg=phone_approval");
+    }
+
     let mut attributes = tauri_build::Attributes::new();
 
     // Windows (MSVC): Tauri's window stack imports TaskDialogIndirect, which

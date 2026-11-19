@@ -3,7 +3,7 @@ import type { PhoneSignDevice } from "./PhoneSignDevice";
 
 export type PhoneSignStatus = { 
 /**
- * This build can talk to a relay (`phone-approval` feature).
+ * This build can talk to a relay (`phone-approval` feature, Unix only).
  */
 available: boolean, 
 /**
