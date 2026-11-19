@@ -5,6 +5,22 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0](https://github.com/clavix-org/clavix/compare/v0.33.3...v0.34.0) (2026-11-19)
+
+
+### Features
+
+* **ssh-agent:** approve signatures on a paired phone ([#519](https://github.com/clavix-org/clavix/issues/519)) ([5bebec4](https://github.com/clavix-org/clavix/commit/5bebec4324df6cc312aba66c043b99a5522e644d))
+* **ssh-agent:** sign with the phone's key while the vault is locked ([#520](https://github.com/clavix-org/clavix/issues/520)) ([1c4a7ad](https://github.com/clavix-org/clavix/commit/1c4a7ad00937cf0ccede0bfa4c80ee1c49fadc22))
+
+
+### Bug Fixes
+
+* **macos:** name the app Clavix on macOS ([#518](https://github.com/clavix-org/clavix/issues/518)) ([5606637](https://github.com/clavix-org/clavix/commit/560663704d543faf5676802a1303919b43f913dc))
+* **phone:** name each pairing failure, and keep a forgotten phone forgotten ([#522](https://github.com/clavix-org/clavix/issues/522)) ([0c7ac8d](https://github.com/clavix-org/clavix/commit/0c7ac8dbc34813a36a2a137c91fab685aa29daee))
+* **phone:** say the relay is unreachable instead of "invalid server response" ([#521](https://github.com/clavix-org/clavix/issues/521)) ([17bef8a](https://github.com/clavix-org/clavix/commit/17bef8a4b43692a363298dfa41e34bd74bae4bde))
+* **release:** accept a wrapped APPLE_CERTIFICATE and name bad secrets ([#516](https://github.com/clavix-org/clavix/issues/516)) ([9e68b8e](https://github.com/clavix-org/clavix/commit/9e68b8ecf68cb15a1af8a3889077616dd4edc115))
+
 ## [0.33.3](https://github.com/clavix-org/clavix/compare/v0.33.2...v0.33.3) (2026-11-18)
 
 
