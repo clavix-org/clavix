@@ -43,9 +43,9 @@ async function flush() {
   await new Promise((r) => setTimeout(r, 0));
 }
 
-function setup(status: unknown) {
+function setup(status: unknown, props: Record<string, unknown> = {}) {
   apiMock.phoneSignStatus.mockResolvedValue(status);
-  render(PhoneSignSettings);
+  render(PhoneSignSettings, { props });
 }
 
 function button(text: RegExp) {
@@ -60,6 +60,35 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("PhoneSignSettings", () => {
+  it("is the first-launch form in phone-only mode: one field to fill, the relay tucked away", async () => {
+    const onStatus = vi.fn();
+    setup(UNPAIRED, { phoneOnly: true, onStatus });
+    await flush();
+    expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({ paired: false }));
+    // The form is there without a click, with a name already in it.
+    const form = document.querySelector(".phone-sign-form") as HTMLFormElement;
+    expect(form).not.toBeNull();
+    const relay = form.querySelector<HTMLInputElement>("details.phone-sign-relay input[type=url]");
+    expect(relay?.value).toBe("https://approve.clavix.org");
+    expect(form.querySelector("details")?.open).toBe(false);
+    apiMock.phoneSignPairStart.mockResolvedValue({ code: "cva2-x", link: "clavix-approve://x", qrSvg: "<svg></svg>" });
+    apiMock.phoneSignPairWait.mockReturnValue(new Promise(() => {}));
+    await fireEvent.submit(form);
+    await flush();
+    const [usedRelay, secret, label] = apiMock.phoneSignPairStart.mock.calls[0];
+    expect(usedRelay).toBe("https://approve.clavix.org");
+    expect(secret).toBe("");
+    expect(label.length).toBeGreaterThan(0);
+  });
+
+  it("has no locked-vault switch in phone-only mode, and says where the key goes", async () => {
+    setup(PAIRED, { phoneOnly: true });
+    await flush();
+    expect(document.querySelector(".phone-sign-devices")?.textContent).toContain("iphone");
+    expect(document.querySelector(".phone-sign-use")).toBeNull();
+    expect(document.querySelector("#phone-sign-title")?.textContent).not.toMatch(/verrouillé|locked/);
+  });
+
   it("shows nothing in a build without the relay client", async () => {
     setup({ ...UNPAIRED, available: false });
     await flush();

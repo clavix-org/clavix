@@ -22,6 +22,15 @@
   // `current !== request` is true even for the same request (Svelte's
   // `state_proxy_equality_mismatch`) and the open would never fire.
   let seq = 0;
+  // The request's optional checkbox, and its value when the last
+  // request was answered.
+  let optionChecked = $state(false);
+  let lastOption = false;
+
+  /** Whether the box of the request just confirmed was ticked. */
+  export function optionChosen(): boolean {
+    return lastOption;
+  }
 
   export function ask(request: ConfirmRequest): Promise<boolean> {
     // Only one prompt at a time. Nothing in the app opens two today,
@@ -29,6 +38,7 @@
     // promise that never settles.
     settle(false);
     const token = ++seq;
+    optionChecked = false;
     current = request;
     const answer = new Promise<boolean>((resolve) => (resolver = resolve));
     // `showModal()` runs the focus algorithm once, at open time, and
@@ -51,6 +61,7 @@
     // Clear before closing: `close()` fires `onclose`, which would
     // otherwise settle the same request a second time.
     resolver = null;
+    lastOption = ok && optionChecked;
     current = null;
     dialog?.close();
     resolve?.(ok);
@@ -68,6 +79,12 @@
   {#if current}
     <h2>{current.title}</h2>
     <p class="confirm-body">{current.body}</p>
+    {#if current.option}
+      <label class="confirm-option">
+        <input type="checkbox" bind:checked={optionChecked} />
+        {current.option.label}
+      </label>
+    {/if}
     <div class="confirm-actions">
       <button bind:this={cancelButton} type="button" class="secondary" onclick={() => settle(false)}>
         {m.action_cancel()}
@@ -91,6 +108,19 @@
   }
   .confirm-dialog::backdrop {
     background: var(--backdrop);
+  }
+  .confirm-option {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    align-items: baseline;
+    margin: 0 0 1.1rem;
+    font-size: 0.95rem;
+  }
+  .confirm-option input {
+    flex: none;
+    width: auto;
+    margin: 0;
   }
   .confirm-dialog h2 {
     margin: 0 0 0.5rem;

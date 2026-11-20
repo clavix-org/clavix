@@ -1,6 +1,6 @@
 import { api } from "./api";
 import { formatError } from "./format";
-import type { Phase, SessionOrigin, StoredAccount } from "./types";
+import type { AppModeStatus, Phase, SessionOrigin, StoredAccount } from "./types";
 
 export type AuthEvent = "loggedIn";
 export type AuthListener = (event: AuthEvent) => void | Promise<void>;
@@ -17,6 +17,8 @@ export class AuthController {
   webauthnBusy = $state(false);
 
   phase = $state<Phase>("init");
+  /** Vault client or phone-only, and whether this build has the latter. */
+  appMode = $state<AppModeStatus>({ mode: "vault", phoneOnlyAvailable: false });
   storedAccount = $state<StoredAccount | null>(null);
   error = $state<string | null>(null);
 
@@ -75,6 +77,13 @@ export class AuthController {
   /** Resolves the initial phase from the persisted session. */
   async bootstrap(opts: { onboarded: boolean }) {
     try {
+      // Before the account: with none stored, the mode picks the screen.
+      // A failure leaves the default, a vault client.
+      try {
+        this.appMode = await api.appMode();
+      } catch (e) {
+        console.warn("[clavix] app_mode failed:", e);
+      }
       const account = await api.storedAccount();
       if (account) {
         this.storedAccount = account;
@@ -93,6 +102,8 @@ export class AuthController {
           this.yubikeyAvailable = false;
           this.yubikeyRequiresPin = false;
         }
+      } else if (this.appMode.mode === "phoneOnly") {
+        this.phase = "phoneOnly";
       } else {
         this.phase = opts.onboarded ? "idle" : "onboarding";
       }
@@ -262,14 +273,57 @@ export class AuthController {
     this.pendingProviders = [];
     this.error = null;
     this.origin = null;
-    this.phase = this.storedAccount ? "unlock" : "idle";
+    this.phase = this.storedAccount ? "unlock" : this.withoutAccount();
   }
 
-  async switchAccount() {
+  /** The screen for a machine with no vault account. */
+  private withoutAccount(): Phase {
+    return this.appMode.mode === "phoneOnly" ? "phoneOnly" : "idle";
+  }
+
+  /**
+   * Use Clavix with no vault, as the agent of a paired phone. Chosen at
+   * first launch, or from the login form before any account exists.
+   */
+  async choosePhoneOnly() {
+    this.error = null;
     try {
-      await api.logout();
+      this.appMode = await api.setAppMode("phoneOnly");
+      this.phase = "phoneOnly";
+    } catch (e) {
+      this.error = formatError(e);
+      return;
+    }
+    // ssh fails while Clavix is not running, and in this mode nothing
+    // else would start it. Best effort: the screen has the switch.
+    api.setAutostart(true).catch((e) => console.warn("[clavix] autostart not enabled:", e));
+  }
+
+  /** From phone-only to the login form. The paired phones are kept. */
+  async addVault() {
+    this.error = null;
+    try {
+      this.appMode = await api.setAppMode("vault");
+      this.phase = "idle";
+    } catch (e) {
+      this.error = formatError(e);
+    }
+  }
+
+  /**
+   * Sign out. `keepPhone` keeps the phone paired in sign mode and goes
+   * on in phone-only mode, instead of ending that pairing too.
+   */
+  async switchAccount(keepPhone = false) {
+    try {
+      await api.logout(keepPhone);
     } catch {
       // best-effort
+    }
+    try {
+      this.appMode = await api.appMode();
+    } catch {
+      // keeps the mode it had
     }
     this.storedAccount = null;
     this.password = "";
@@ -277,7 +331,7 @@ export class AuthController {
     this.pendingProviders = [];
     this.error = null;
     this.origin = null;
-    this.phase = "idle";
+    this.phase = this.withoutAccount();
   }
 
   async cancelTwoFactor() {

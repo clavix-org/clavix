@@ -5,6 +5,7 @@
   import Mark from "./Mark.svelte";
   import AuthLoginForm from "./AuthLoginForm.svelte";
   import Onboarding from "./Onboarding.svelte";
+  import PhoneOnlyScreen from "./PhoneOnlyScreen.svelte";
   import TwoFactorForm from "./TwoFactorForm.svelte";
   import UnlockForm from "./UnlockForm.svelte";
   import StandaloneOpenForm from "./StandaloneOpenForm.svelte";
@@ -55,7 +56,20 @@
 {/if}
 
 {#if auth.phase === "onboarding"}
-  <Onboarding onComplete={onOnboardingComplete} />
+  <Onboarding
+    onComplete={onOnboardingComplete}
+    onPhoneOnly={auth.appMode.phoneOnlyAvailable
+      ? () => {
+          // Onboarded either way: the choice is not asked twice.
+          onOnboardingComplete();
+          void auth.choosePhoneOnly();
+        }
+      : undefined}
+  />
+{/if}
+
+{#if auth.phase === "phoneOnly"}
+  <PhoneOnlyScreen onAddVault={() => auth.addVault()} />
 {/if}
 
 {#if auth.phase === "idle" || (auth.phase === "authenticating" && !auth.storedAccount) || auth.phase === "error"}
@@ -88,6 +102,17 @@
      from two directions. Not shown mid-login. -->
 {#if auth.phase === "unlock" || auth.phase === "idle"}
   <StandaloneOpenForm onOpen={(bytes, password) => auth.openExportFile(bytes, password)} />
+{/if}
+
+<!-- The way back for someone who picked "I have a vault" by mistake, or
+     who added a vault form to a phone-only setup and changed their mind.
+     Only before any account exists: afterwards it is a sign-out choice. -->
+{#if auth.phase === "idle" && auth.appMode.phoneOnlyAvailable}
+  <p class="auth-phone-only">
+    <button type="button" class="auth-footer-link" onclick={() => auth.choosePhoneOnly()}>
+      {m.phone_only_back()}
+    </button>
+  </p>
 {/if}
 
 {#if auth.phase === "twoFactor"}
@@ -157,6 +182,12 @@
     margin-top: 1.25rem;
     font-size: 0.8rem;
     color: var(--text-muted);
+  }
+
+  .auth-phone-only {
+    margin: 1rem 0 0;
+    text-align: center;
+    font-size: 0.85rem;
   }
 
   .auth-footer-sep {
