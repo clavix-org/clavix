@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, UserAttentionType};
 use tokio::sync::oneshot;
 
-use crate::phone_approval::{self, ApprovalRequest, BoxFuture, ConfirmDialog, LockProbe};
+use crate::phone_approval::{self, ApprovalRequest, BoxFuture, ConfirmDialog, LockProbe, Verdict};
 use crate::ssh_agent::{self, SignGuard, SignPolicy, SignRequest};
 use crate::state::AppState;
 use clavix_core::crypto::decrypt_name;
@@ -349,21 +349,53 @@ async fn confirm_signature(app: AppHandle, req: SignRequest) -> bool {
     let id = next_confirm_id(&state);
     let phone = *state.phone_options.lock();
     let approver = state.phone_approver.lock().clone();
+    // One journal line per approval, saying where it was given: a login
+    // that goes through with no prompt later (an approval remembered for
+    // the session) can then be traced back to the answer that allowed it.
+    let what = approved_what(&req);
     if !(phone.enabled && approver.is_paired() && req.phone_eligible()) {
-        return request_confirmation(&app, id, &req, DIALOG_TIMEOUT, false).await;
+        let approved = request_confirmation(&app, id, &req, DIALOG_TIMEOUT, false).await;
+        if approved {
+            eprintln!("[clavix agent] approved in the desktop dialog for {what}");
+        }
+        return approved;
     }
     let approval =
         ApprovalRequest::from_sign_request(&req, machine_label(), phone_hints(&req.hops));
     let dialog = DialogPrompt { app, id, req };
     let probe: LockProbe = Arc::new(|| Box::pin(crate::screen_lock::probe()));
-    phone_approval::race(
+    let verdict = phone_approval::race(
         approval,
         approver,
         &dialog,
         Duration::from_secs(phone.delay_s.into()),
         probe,
     )
-    .await
+    .await;
+    match verdict {
+        Verdict::ApprovedOnThePhone => eprintln!("[clavix phone] approved on the phone for {what}"),
+        Verdict::ApprovedAtTheDesk => {
+            eprintln!("[clavix agent] approved in the desktop dialog for {what}")
+        }
+        Verdict::Refused => {}
+    }
+    verdict.approved()
+}
+
+/// "<key fingerprint> → <destination host key fingerprint>", for the
+/// journal; the key alone for a request that names no destination.
+fn approved_what(req: &SignRequest) -> String {
+    match req.hops.last().filter(|h| !h.forwarded) {
+        Some(host) => format!("{} → {}", req.key.fingerprint, host.fingerprint),
+        None => req.key.fingerprint.clone(),
+    }
+}
+
+/// Whether approvals remembered under "once per session" are for one
+/// destination only: while a paired phone is asked. Its approval is for
+/// the server it showed, not for every server the key opens.
+fn remember_per_host(state: &AppState) -> bool {
+    state.phone_options.lock().enabled && state.phone_approver.lock().is_paired()
 }
 
 /// Apply the "ask the phone too" settings.
@@ -609,7 +641,10 @@ pub async fn start_ssh_agent(
                 as std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
         }))
     };
-    let guard = SignGuard::new(sign_policy, confirm);
+    let per_host_app = app.clone();
+    let guard = SignGuard::new(sign_policy, confirm).remembering_per_host(Arc::new(move || {
+        remember_per_host(&per_host_app.state::<AppState>())
+    }));
 
     let handle = ssh_agent::start_agent(socket_path.clone(), agent_keys, guard).await?;
     let exposed: Vec<ExposedKey> = handle

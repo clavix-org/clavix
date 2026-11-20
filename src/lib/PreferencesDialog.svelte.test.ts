@@ -93,6 +93,19 @@ function key(target: Element, k: string) {
 }
 
 describe("PreferencesDialog", () => {
+  it("says what once per session remembers, next to that choice only", async () => {
+    const { component, container, tabs } = mount();
+    await component.open();
+    tabs()
+      .find((t) => t.id === "prefs-tab-ssh")
+      ?.click();
+    await flush();
+    // The fixture's policy is "session".
+    const hint = container.querySelector(".ssh-confirm-session-hint")?.textContent ?? "";
+    expect(hint).toMatch(/verrouillage|locked/);
+    expect(hint).toMatch(/autre serveur|another server/);
+  });
+
   it("opens on the SSH tab when asked to (a click on the relay notification)", async () => {
     const { component, tabs, panel } = mount();
     await component.open("ssh");

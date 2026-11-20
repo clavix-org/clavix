@@ -278,7 +278,9 @@ mod proto {
     pub enum SignPolicy {
         /// Sign silently (historical behaviour).
         Never,
-        /// Ask once per key per agent run, then remember that key.
+        /// Ask once per key per agent run, then remember that key: for
+        /// every destination, or for the approved one only (see
+        /// `SignGuard::remembering_per_host`).
         PerSession,
         /// Ask before every signature.
         Always,
@@ -291,14 +293,27 @@ mod proto {
     pub type ConfirmFn =
         Arc<dyn Fn(SignRequest) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
+    /// Whether an approval remembered under `PerSession` is for the
+    /// destination it was given for only. Asked at each request: the
+    /// setting behind it can change while the agent runs.
+    pub type PerHostFn = Arc<dyn Fn() -> bool + Send + Sync>;
+
+    /// What one remembered approval covers: a key, and the host key of the
+    /// destination it was approved for, or `None` for "whatever the
+    /// destination" (and for requests that name none).
+    type Approval = (String, Option<Vec<u8>>);
+
     /// Signature-authorization policy for a running agent, plus the
     /// per-run set of keys already approved under `PerSession`.
     #[derive(Clone)]
     pub struct SignGuard {
         policy: SignPolicy,
         confirm: Option<ConfirmFn>,
-        /// Fingerprints approved during this agent run (PerSession only).
-        approved: Arc<Mutex<HashSet<String>>>,
+        /// Approvals given during this agent run (PerSession only). The
+        /// set dies with the guard: a lock or a logout stops the agent,
+        /// and the next one starts with nothing remembered.
+        approved: Arc<Mutex<HashSet<Approval>>>,
+        per_host: Option<PerHostFn>,
         /// Set when the agent starts stopping: every parked authorization
         /// resolves to "denied" immediately instead of waiting out the
         /// confirmation timeout. This is what keeps `stop()` from ever
@@ -314,9 +329,38 @@ mod proto {
                 policy,
                 confirm,
                 approved: Arc::new(Mutex::new(HashSet::new())),
+                per_host: None,
                 cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 cancel_notify: Arc::new(tokio::sync::Notify::new()),
             }
+        }
+
+        /// Under `PerSession`, remember an approval for its destination
+        /// only while `per_host` says so.
+        ///
+        /// Meant for when a phone approves: the phone shows one
+        /// destination, and its approval must not silently cover every
+        /// other server that key opens until the next lock. The desktop
+        /// dialog's approvals are scoped the same way then, so that the
+        /// two answers to one prompt mean the same thing.
+        pub fn remembering_per_host(mut self, per_host: PerHostFn) -> Self {
+            self.per_host = Some(per_host);
+            self
+        }
+
+        /// What an approval of `req` would cover.
+        ///
+        /// The destination is the host key of the session the connection
+        /// is bound to, and only for a login to that very session
+        /// (`phone_eligible`): that is what the prompt shows. Anything
+        /// else (a client that does not bind, git signing) names no
+        /// destination and is remembered per key, apart from any host.
+        fn approval_for(&self, req: &SignRequest) -> Approval {
+            let per_host = self.per_host.as_ref().is_some_and(|f| f());
+            let host = (per_host && req.phone_eligible())
+                .then(|| req.hops.last().map(|h| h.key_blob.clone()))
+                .flatten();
+            (req.key.fingerprint.clone(), host)
         }
 
         /// Deny every parked (and every later) authorization. Idempotent;
@@ -360,18 +404,17 @@ mod proto {
                 SignPolicy::Never => true,
                 SignPolicy::Always => self.ask(req).await,
                 SignPolicy::PerSession => {
-                    // Keyed on the fingerprint alone, deliberately: the
-                    // documented contract is "ask once per key per agent
-                    // run". Keying on (key, caller) would re-prompt for
-                    // every new `ssh` process, which is the behaviour
-                    // `Always` already provides.
-                    let fingerprint = req.key.fingerprint.clone();
-                    if self.approved.lock().await.contains(&fingerprint) {
+                    // Keyed on the key, and on the destination when
+                    // approvals are remembered per host. Never on the
+                    // caller: that would re-prompt for every new `ssh`
+                    // process, which is what `Always` already provides.
+                    let approval = self.approval_for(&req);
+                    if self.approved.lock().await.contains(&approval) {
                         return true;
                     }
                     let ok = self.ask(req).await;
                     if ok {
-                        self.approved.lock().await.insert(fingerprint);
+                        self.approved.lock().await.insert(approval);
                     }
                     ok
                 }
@@ -1154,6 +1197,116 @@ mod proto {
             let calls = Arc::new(Mutex::new(0u32));
             let g = SignGuard::new(SignPolicy::Always, Some(counting_confirm(false, calls)));
             assert!(!rt.block_on(g.authorize(req_for(&dummy_key("SHA256:a")))));
+        }
+
+        /// A login to `host`, on a connection bound to that session: what
+        /// the prompt (and the phone) shows a destination for.
+        fn login(key: &KeyInfo, host: &HostKey, sid: &[u8]) -> SignRequest {
+            let mut conn = ConnState::default();
+            assert_eq!(bind(&mut conn, host, sid, false), vec![SSH_AGENT_SUCCESS]);
+            SignRequest {
+                hops: conn.hops,
+                data: userauth(sid, Some(&host.blob())),
+                ..req_for(key)
+            }
+        }
+
+        fn per_host_guard(
+            on: Arc<std::sync::atomic::AtomicBool>,
+            calls: Arc<Mutex<u32>>,
+        ) -> SignGuard {
+            SignGuard::new(SignPolicy::PerSession, Some(counting_confirm(true, calls)))
+                .remembering_per_host(Arc::new(move || {
+                    on.load(std::sync::atomic::Ordering::SeqCst)
+                }))
+        }
+
+        /// With a phone approving, "once per session" remembers the
+        /// approval for the server it was given for: the same key to a
+        /// new server asks again, the same server does not.
+        #[test]
+        fn per_session_remembers_an_approval_for_its_destination_only() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let calls = Arc::new(Mutex::new(0u32));
+            let asked = || rt.block_on(async { *calls.lock().await });
+            let on = Arc::new(std::sync::atomic::AtomicBool::new(true));
+            let g = per_host_guard(on, calls.clone());
+            let key = dummy_key("SHA256:a");
+            let (web, db) = (HostKey::new(1), HostKey::new(2));
+
+            assert!(rt.block_on(g.authorize(login(&key, &web, b"sid-1"))));
+            assert_eq!(asked(), 1);
+            // Same key, same server, another ssh session: remembered.
+            assert!(rt.block_on(g.authorize(login(&key, &web, b"sid-2"))));
+            assert_eq!(asked(), 1);
+            // Same key, another server: asked again.
+            assert!(rt.block_on(g.authorize(login(&key, &db, b"sid-3"))));
+            assert_eq!(asked(), 2);
+            assert!(rt.block_on(g.authorize(login(&key, &db, b"sid-4"))));
+            assert_eq!(asked(), 2);
+            // Another key to an approved server: asked.
+            assert!(rt.block_on(g.authorize(login(&dummy_key("SHA256:b"), &web, b"sid-5"))));
+            assert_eq!(asked(), 3);
+
+            // A request that names no destination (git signing, a client
+            // that does not bind) is remembered per key, and covers no
+            // server: nor is it covered by one.
+            assert!(rt.block_on(g.authorize(req_for(&key))));
+            assert_eq!(asked(), 4);
+            assert!(rt.block_on(g.authorize(req_for(&key))));
+            assert_eq!(asked(), 4);
+            assert!(rt.block_on(g.authorize(login(&key, &HostKey::new(3), b"sid-6"))));
+            assert_eq!(asked(), 5);
+        }
+
+        /// Without a phone, the setting keeps its meaning: once per key,
+        /// whatever the server. And an approval given that way stops
+        /// covering servers the moment a phone is asked.
+        #[test]
+        fn per_session_is_per_key_until_approvals_are_per_host() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let calls = Arc::new(Mutex::new(0u32));
+            let asked = || rt.block_on(async { *calls.lock().await });
+            let on = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let g = per_host_guard(on.clone(), calls.clone());
+            let key = dummy_key("SHA256:a");
+            let (web, db) = (HostKey::new(1), HostKey::new(2));
+
+            assert!(rt.block_on(g.authorize(login(&key, &web, b"sid-1"))));
+            assert!(rt.block_on(g.authorize(login(&key, &db, b"sid-2"))));
+            assert_eq!(asked(), 1);
+
+            on.store(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(rt.block_on(g.authorize(login(&key, &db, b"sid-3"))));
+            assert_eq!(asked(), 2);
+        }
+
+        /// A lock or a logout stops the agent; the next one is built
+        /// with a new guard. Nothing approved before is remembered, and
+        /// the stopped guard authorizes nothing, remembered or not.
+        #[test]
+        fn a_lock_forgets_every_remembered_approval() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let calls = Arc::new(Mutex::new(0u32));
+            let asked = || rt.block_on(async { *calls.lock().await });
+            let on = Arc::new(std::sync::atomic::AtomicBool::new(true));
+            let key = dummy_key("SHA256:a");
+            let web = HostKey::new(1);
+
+            let before = per_host_guard(on.clone(), calls.clone());
+            assert!(rt.block_on(before.authorize(login(&key, &web, b"sid-1"))));
+            assert!(rt.block_on(before.authorize(login(&key, &web, b"sid-2"))));
+            assert_eq!(asked(), 1);
+
+            // The lock: what `stop()` does to the running agent's guard.
+            before.cancel();
+            assert!(!rt.block_on(before.authorize(login(&key, &web, b"sid-3"))));
+            assert_eq!(asked(), 1);
+
+            // The unlock: a new agent, a new guard.
+            let after = per_host_guard(on, calls.clone());
+            assert!(rt.block_on(after.authorize(login(&key, &web, b"sid-4"))));
+            assert_eq!(asked(), 2);
         }
 
         #[test]

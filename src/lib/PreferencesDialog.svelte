@@ -681,6 +681,9 @@
               <option value="session">{m.settings_ssh_confirm_session()}</option>
               <option value="always">{m.settings_ssh_confirm_always()}</option>
             </select>
+            {#if sshAgentConfirm === "session"}
+              <p class="hint ssh-confirm-session-hint">{m.settings_ssh_confirm_session_hint()}</p>
+            {/if}
           </dd>
           <dt>{m.settings_ssh_autostart()}</dt>
           <dd>

@@ -127,6 +127,7 @@
   "settings_ssh_confirm": "Confirmation avant signature",
   "settings_ssh_confirm_never": "Jamais (signer directement)",
   "settings_ssh_confirm_session": "Une fois par clé et par session",
+  "settings_ssh_confirm_session_hint": "« Une fois par clé et par session » : une signature approuvée est retenue jusqu'au verrouillage du coffre, et cette clé signe ensuite sans rien demander. Quand un téléphone appairé valide les confirmations, elle n'est retenue que pour le serveur affiché : la même clé vers un autre serveur redemande une confirmation.",
   "settings_ssh_confirm_always": "À chaque utilisation",
   "settings_ssh_autostart": "Redémarrage automatique",
   "settings_ssh_autostart_label": "Relancer l'agent après chaque déverrouillage",
