@@ -80,7 +80,7 @@ function mount() {
       onCopySocketPath: vi.fn(),
       onCopyShellCommand: vi.fn(),
     },
-  }) as unknown as { component: { open: () => Promise<void> }; container: HTMLElement };
+  }) as unknown as { component: { open: (tab?: "ssh") => Promise<void> }; container: HTMLElement };
   const tabs = () => Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
   const panel = () => container.querySelector('[role="tabpanel"]') as HTMLElement;
   return { component, container, tabs, panel, onApplyTheme };
@@ -93,6 +93,14 @@ function key(target: Element, k: string) {
 }
 
 describe("PreferencesDialog", () => {
+  it("opens on the SSH tab when asked to (a click on the relay notification)", async () => {
+    const { component, tabs, panel } = mount();
+    await component.open("ssh");
+    await flush();
+    expect(panel().id).toBe("prefs-panel-ssh");
+    expect(tabs().find((t) => t.id === "prefs-tab-ssh")?.getAttribute("aria-selected")).toBe("true");
+  });
+
   // The dialog's content stays mounted while it is closed, SSH tab
   // included: what happened meanwhile must not be hidden by a status
   // read at the first opening.

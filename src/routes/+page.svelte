@@ -66,7 +66,10 @@
   let searchInput: HTMLInputElement | null = null;
   let statsDialog = $state<{ open: () => Promise<void> } | null>(null);
   let auditDialog = $state<{ open: () => void } | null>(null);
-  let preferencesDialog = $state<{ open: () => Promise<void> } | null>(null);
+  let preferencesDialog = $state<{ open: (tab?: "ssh") => Promise<void> } | null>(null);
+  // The notification about a relay refusal was clicked while the vault
+  // was locked: the SSH settings open once it is unlocked.
+  let sshSettingsWanted = false;
   let generatorDialog = $state<{ open: () => void } | null>(null);
   let confirmDialog = $state<{ ask: ConfirmFn } | null>(null);
   let repromptDialog = $state<{ ask: (name: string) => Promise<boolean> } | null>(null);
@@ -302,6 +305,10 @@
 
   auth.on(async (event) => {
     if (event === "loggedIn") {
+      if (sshSettingsWanted) {
+        sshSettingsWanted = false;
+        void preferencesDialog?.open("ssh");
+      }
       // A file-backed standalone session already holds its vault; it
       // has no cache entry and nothing to sync against.
       if (auth.origin === "exportFile") {
@@ -814,6 +821,7 @@
   });
 
   let unlistenSessionLocked: UnlistenFn | null = null;
+  let unlistenOpenSshSettings: UnlistenFn | null = null;
 
   $effect(() => {
     api.setTrayIconStyle(prefs.trayIconStyle).catch((e) => {
@@ -833,6 +841,13 @@
     unlistenSessionLocked = await listen("clavix:session-locked", () => {
       lockAndReset();
     });
+    // A click on the "relay refused" notification (Rust `relay_notice`).
+    // The preferences belong to the unlocked view; while locked, the
+    // window was raised on the unlock form and the settings follow.
+    unlistenOpenSshSettings = await listen("clavix:open-ssh-settings", () => {
+      if (auth.phase === "loggedIn") void preferencesDialog?.open("ssh");
+      else sshSettingsWanted = true;
+    });
     // Fire-and-forget: a failed update check must never disrupt startup, so we
     // swallow errors (offline, rate-limited, GitHub down) and simply show no
     // banner. Distribution builds have no update check and skip it entirely.
@@ -849,6 +864,7 @@
     clipboard.dispose();
     vault.dispose();
     unlistenSessionLocked?.();
+    unlistenOpenSshSettings?.();
   });
 
   function completeOnboarding() {

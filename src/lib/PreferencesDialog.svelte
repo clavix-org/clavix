@@ -316,7 +316,8 @@
   // locked and unlocked) must show when the dialog is opened again.
   let opened = $state(0);
 
-  export async function open() {
+  export async function open(show?: Tab) {
+    if (show) tab = show;
     opened += 1;
     dialog?.showModal();
     void refreshAutostart();

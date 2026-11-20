@@ -181,6 +181,7 @@ pub(crate) mod imp {
 
     /// What the relay last refused a sign request of this pairing for.
     static REFUSAL: super::super::phone::RefusalSlot = super::super::phone::RefusalSlot::new();
+    static NOTIFIED: crate::relay_notice::Notified = crate::relay_notice::Notified::new();
 
     /// Record how a sign request went: a refusal by the relay to show in
     /// the settings (`ssh` only says "agent refused operation"), or an
@@ -191,6 +192,10 @@ pub(crate) mod imp {
     ) {
         if let Some(refusal) = request_verdict(outcome) {
             REFUSAL.set(refusal);
+            match refusal {
+                Some(refusal) => crate::relay_notice::refused(&NOTIFIED, refusal),
+                None => NOTIFIED.reset(),
+            }
         }
     }
 
@@ -263,6 +268,7 @@ pub(crate) mod imp {
         // A phone added or forgotten: what the relay refused before
         // shows again at the next request, if it still does.
         REFUSAL.set(None);
+        NOTIFIED.reset();
         core_state::save(dir, pairing).map_err(|e| storage_error(dir, e))
     }
 
