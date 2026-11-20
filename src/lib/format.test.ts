@@ -206,13 +206,22 @@ describe("formatError", () => {
   it("words each kind of phone error, none as an invalid server response", () => {
     const invalid = formatError({ code: "invalid_response", data: { reason: "x" } });
     const seen = new Set<string>();
-    for (const kind of ["no_pairing", "not_paired", "bad_relay_url", "rejected", "relay"]) {
+    for (const kind of [
+      "no_pairing",
+      "not_paired",
+      "bad_relay_url",
+      "rejected",
+      "gone",
+      "expired",
+      "outdated",
+      "relay",
+    ]) {
       const msg = formatError({ code: "phone_error", data: { kind, reason: "x" } });
       expect(msg).not.toBe(invalid);
       expect(msg.length).toBeGreaterThan(10);
       seen.add(msg);
     }
-    expect(seen.size).toBe(5);
+    expect(seen.size).toBe(8);
     // The detail is shown where it helps, and a kind this UI does not
     // know yet still says something.
     expect(

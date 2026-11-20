@@ -252,12 +252,16 @@ What Clavix enforces:
 - An approval counts only when its proof verifies under the approval key recorded at pairing, and is bound to the channel, the request id and the hash of the request as sent. Everything else (no answer, relay error, malformed or unauthentic answer) is "unavailable" and leaves the decision to the dialog. It is never an approval, and never a deny on its own.
 - The first answer wins and the other prompt is withdrawn. A deny from either side denies.
 - Session unlocked: the dialog at once, and the phone after the user's delay (0 = at once). Screen locked: the phone only, and the dialog comes back on unlock. The request may wait 90 s instead of 30 s once the phone is involved.
+- Pairing (both modes) follows version 2 of the Clavix Approve pairing protocol. The QR code is a `clavix-approve://` link that opens the app, never a page served by the relay. The six digits are a commit-then-reveal short authentication string: Clavix commits to a nonce, the phone answers with its keys and its own nonce, and only then is Clavix's nonce revealed. A relay that learned the pairing secret has one chance in a million per code, and each failed try is a pairing the user refuses. Clavix keeps a phone only after the user confirmed the digits. A phone that answered and was not confirmed (digits differ, dialog closed, vault locked) is revoked on the relay, best effort, so it does not keep a pairing this computer never accepted.
+- A pairing made under version 1 of the pairing protocol is recognised as such (it was stored without a protocol version). It stays visible so that it can be forgotten, but it is never used: no approval is asked of it, its keys are not offered while locked, and no phone can be added to it.
+- The enrolment secret is the relay's own admission control, not a secret of the pairing: it is empty for a relay with open enrolment, and is not stored.
 - The pairing (relay URL, bearer token, channel keys, the devices' public keys) is stored in `session.json`, encrypted with the user key. It is loaded on unlock and dropped from memory on lock, logout and auto-lock, together with the vault keys. It is never sent to the Vaultwarden server.
 
 | Attacker | Effect |
 |---|---|
 | The relay or the network | Can delay or drop requests: the dialog still works, so the worst case is today's behaviour. Cannot forge an approval (it needs the phone's approval key) or replay one (bound to channel, request id and request hash). Sees metadata: channel ids, timing, sizes. |
-| A malicious page served by the relay | Could show the phone user a different destination to obtain a verification. The page's integrity is the relay operator's. |
+| A malicious page served by the relay | Only matters to a user who pairs through the relay's web page by pasting the code, instead of the app. The page could then show a different destination to obtain a verification; its integrity is the relay operator's. Clavix's QR code never leads to it. |
+| A relay that interferes with pairing | Cannot substitute its own keys without changing the six digits, which it cannot steer (see above). It can make pairing fail. |
 | A process in the desktop session | Cannot approve by faking input while the screen is locked, when the phone is the only prompt. While the session is unlocked the dialog is shown, and that process can still click it, as before. |
 | A thief with the unlocked phone | Needs the passkey's user verification for each approval. |
 | A compromised desktop | No change: it holds the keys and can sign without asking anyone. |

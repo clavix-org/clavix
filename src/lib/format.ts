@@ -31,6 +31,12 @@ export function formatError(e: unknown): string {
           return m.err_phone_bad_relay_url({ reason });
         case "rejected":
           return m.err_phone_rejected();
+        case "gone":
+          return m.err_phone_gone();
+        case "expired":
+          return m.err_phone_expired();
+        case "outdated":
+          return m.err_phone_outdated();
         default:
           return m.err_phone_relay({ reason });
       }

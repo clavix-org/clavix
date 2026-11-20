@@ -21,6 +21,7 @@ const KEY = "ecdsa-sha2-nistp256 AAAAE2VjZHNh iphone";
 const UNPAIRED = {
   available: true,
   paired: false,
+  outdated: false,
   devices: [],
   relay: null,
   label: null,
@@ -100,8 +101,8 @@ describe("PhoneSignSettings", () => {
     await fireEvent.input(inputs[2], { target: { value: "desk" } });
 
     apiMock.phoneSignPairStart.mockResolvedValue({
-      code: "cva1-x",
-      link: "https://approve.clavix.org/#cva1-x",
+      code: "cva2-x",
+      link: "clavix-approve://pair?relay=https://approve.clavix.org#cva2-x",
       qrSvg: "<svg></svg>",
     });
     apiMock.phoneSignPairWait.mockResolvedValue({ digits: "042 917", deviceName: "iphone" });
@@ -122,23 +123,57 @@ describe("PhoneSignSettings", () => {
     expect(document.querySelector(".phone-sign-pubkey")?.textContent).toBe(KEY);
   });
 
-  it("shows the pasteable link while waiting, and cancels when the digits differ", async () => {
+  it("shows the pasteable code while waiting, and cancels when the digits differ", async () => {
     setup(UNPAIRED);
     await flush();
     await fireEvent.click(button(/Appairer un téléphone signataire|Pair a phone for signing/));
     await flush();
     let release: (v: unknown) => void = () => {};
-    apiMock.phoneSignPairStart.mockResolvedValue({ code: "c", link: "https://r/#c", qrSvg: "<svg></svg>" });
+    apiMock.phoneSignPairStart.mockResolvedValue({
+      code: "cva2-c",
+      link: "clavix-approve://pair?relay=https://r#cva2-c",
+      qrSvg: "<svg></svg>",
+    });
     apiMock.phoneSignPairWait.mockReturnValue(new Promise((r) => (release = r)));
+    // Open enrolment: the secret is optional, and left empty here.
+    const inputs = document.querySelectorAll<HTMLInputElement>(".phone-sign-form input");
+    expect(inputs[1].required).toBe(false);
+    await fireEvent.input(inputs[2], { target: { value: "desk" } });
     await fireEvent.submit(document.querySelector(".phone-sign-form") as HTMLFormElement);
     await flush();
-    expect(document.querySelector(".phone-approval-code")?.textContent).toBe("https://r/#c");
+    expect(apiMock.phoneSignPairStart).toHaveBeenCalledWith("https://approve.clavix.org", "", "desk");
+    expect(document.querySelector(".phone-approval-code")?.textContent).toBe("cva2-c");
     release({ digits: "111 111", deviceName: "x" });
     await flush();
     await fireEvent.click(button(/Différents|Different/));
     await flush();
     expect(apiMock.phoneSignPairCancel).toHaveBeenCalled();
     expect(apiMock.phoneSignPairConfirm).not.toHaveBeenCalled();
+  });
+
+  it("only offers to forget a pairing made before pairing version 2", async () => {
+    setup({ ...PAIRED, outdated: true });
+    await flush();
+    expect(document.querySelector(".phone-sign-outdated")?.textContent).toMatch(
+      /appairez de nouveau|pair the phone again/,
+    );
+    expect(document.querySelector(".phone-sign-use")).toBeNull();
+    expect(button(/Ajouter un téléphone|Add another phone/)).toBeUndefined();
+    expect(button(/^\s*(Oublier|Forget)\s*$/)).toBeDefined();
+  });
+
+  it("takes an unconfirmed phone off the relay when the dialog closes", async () => {
+    setup(UNPAIRED);
+    await flush();
+    await fireEvent.click(button(/Appairer un téléphone signataire|Pair a phone for signing/));
+    await flush();
+    apiMock.phoneSignPairStart.mockResolvedValue({ code: "c", link: "l", qrSvg: "<svg></svg>" });
+    apiMock.phoneSignPairWait.mockResolvedValue({ digits: "111 111", deviceName: "x" });
+    await fireEvent.submit(document.querySelector(".phone-sign-form") as HTMLFormElement);
+    await flush();
+    expect(apiMock.phoneSignPairCancel).not.toHaveBeenCalled();
+    cleanup();
+    expect(apiMock.phoneSignPairCancel).toHaveBeenCalled();
   });
 
   it("adds one more phone to an existing pairing", async () => {

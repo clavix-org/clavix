@@ -33,7 +33,9 @@
   onMount(() => {
     refresh();
     return () => {
-      if (offer && !candidate) api.phoneSignPairCancel().catch(() => {});
+      // Leaving the dialog mid-pairing: stop waiting on the relay, and
+      // take a phone that answered but was never confirmed off it again.
+      if (offer) api.phoneSignPairCancel().catch(() => {});
     };
   });
 
@@ -176,6 +178,11 @@
             {/each}
           </ul>
           <span class="hint">{status.relay}</span>
+          {#if status.outdated}
+            <p class="hint phone-sign-warning phone-sign-outdated" role="alert">
+              {m.phone_approval_outdated()}
+            </p>
+          {/if}
           {#if forgetFailed}
             <p class="hint phone-sign-warning" role="alert">
               {m.phone_sign_forget_local_warning()}
@@ -183,6 +190,7 @@
           {/if}
           <p class="hint">{m.phone_sign_forget_hint()}</p>
         </dd>
+        {#if !status.outdated}
         <dt>{m.phone_sign_when_locked()}</dt>
         <dd>
           <label class="ssh-agent-autostart">
@@ -197,6 +205,7 @@
           </label>
           <p class="hint">{m.phone_sign_use_hint()}</p>
         </dd>
+        {/if}
       </dl>
     {/if}
 
@@ -236,7 +245,7 @@
                rectangles, nothing from the relay but the code it encodes. -->
           <div class="phone-approval-qr">{@html offer.qrSvg}</div>
           <p class="hint">{m.phone_approval_or_code()}</p>
-          <code class="phone-approval-code">{offer.link}</code>
+          <code class="phone-approval-code">{offer.code}</code>
           <p class="hint">{m.phone_approval_waiting()}</p>
           <div class="phone-approval-actions">
             <button type="button" class="secondary" onclick={cancelPairing}>
@@ -259,7 +268,8 @@
         </label>
         <label>
           {m.phone_approval_enroll_secret()}
-          <PasswordInput bind:value={enrollSecret} autocomplete="off" required disabled={busy} />
+          <PasswordInput bind:value={enrollSecret} autocomplete="off" disabled={busy} />
+          <span class="hint">{m.phone_approval_enroll_secret_hint()}</span>
         </label>
         <label>
           {m.phone_approval_label()}
@@ -282,9 +292,11 @@
     {:else}
       <div class="phone-approval-actions">
         {#if status.paired}
-          <button type="button" class="secondary" onclick={startPairing} disabled={busy}>
-            {m.phone_sign_add()}
-          </button>
+          {#if !status.outdated}
+            <button type="button" class="secondary" onclick={startPairing} disabled={busy}>
+              {m.phone_sign_add()}
+            </button>
+          {/if}
         {:else}
           <button type="button" onclick={() => (pairing = true)} disabled={busy}>
             {m.phone_sign_pair()}

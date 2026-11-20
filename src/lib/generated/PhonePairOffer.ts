@@ -2,11 +2,12 @@
 
 export type PhonePairOffer = { 
 /**
- * The code to type in the phone (`cva1-…`, 15 minutes, works once).
+ * The code to paste in the phone (`cva2-…`, 15 minutes, works once).
  */
 code: string, 
 /**
- * `<relay>/#<code>`: opens the relay's page with the code filled in.
+ * `clavix-approve://pair?relay=…#<code>`: opens the Clavix Approve
+ * app, which then needs no relay typed in. Never a web page.
  */
 link: string, 
 /**
