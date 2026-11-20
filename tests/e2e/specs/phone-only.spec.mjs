@@ -12,6 +12,10 @@
 //   - after a restart the agent is back by itself, with no unlock screen:
 //     the keys are on the phone, there is nothing to unlock.
 
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+
+import { sandboxHome } from "../wdio.conf.mjs";
 import {
   SSH_AGENT_SIGN_RESPONSE,
   agentLoginSignature,
@@ -95,6 +99,18 @@ describe("Phone-only mode", () => {
     expect(await text(".phone-only-config")).toBe(`Host *\n  IdentityAgent "${socket}"`);
 
     expect(await signsALogin()).toBe(SSH_AGENT_SIGN_RESPONSE);
+  });
+
+  it("turned on start at login, inside the test's own home directory", async () => {
+    // ssh fails while Clavix is not running, so the mode starts it at
+    // login. The entry must be the sandbox's: the suite runs on developer
+    // machines too, and theirs is not ours to rewrite.
+    const autostart = join(sandboxHome, ".config/autostart");
+    await browser.waitUntil(() => existsSync(autostart) && readdirSync(autostart).length > 0, {
+      timeout: 10_000,
+      timeoutMsg: `no autostart entry in ${autostart}`,
+    });
+    expect(await exists(".phone-only-autostart input:checked")).toBe(true);
   });
 
   it("is back after a restart, with nothing to unlock", async () => {

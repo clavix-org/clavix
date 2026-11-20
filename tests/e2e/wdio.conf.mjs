@@ -33,6 +33,12 @@ const sandboxDataHome = resolve(here, "sandbox");
 // window geometry under XDG_CONFIG_HOME. Nested in the data sandbox so
 // the reset below wipes both.
 const sandboxConfigHome = resolve(sandboxDataHome, "config");
+// And a home directory of its own. "Start at login" is written to
+// `~/.config/autostart` through the home directory, not through
+// XDG_CONFIG_HOME: without this, a spec that turns it on (choosing the
+// phone-only mode does) rewrites the developer's own autostart entry to
+// launch the binary under test.
+export const sandboxHome = resolve(sandboxDataHome, "home");
 // And for the runtime directory, where the SSH agent binds its socket
 // (`$XDG_RUNTIME_DIR/clavix/agent.sock`): without this, a spec that
 // starts an agent would take the socket of the Clavix the developer is
@@ -233,6 +239,7 @@ export const config = {
 
     rmSync(sandboxDataHome, { recursive: true, force: true });
     mkdirSync(sandboxDataHome, { recursive: true });
+    mkdirSync(sandboxHome, { recursive: true });
     rmSync(sandboxRuntimeDir, { recursive: true, force: true });
     mkdirSync(sandboxRuntimeDir, { recursive: true, mode: 0o700 });
 
@@ -254,6 +261,7 @@ export const config = {
           XDG_DATA_HOME: sandboxDataHome,
           XDG_CONFIG_HOME: sandboxConfigHome,
           XDG_RUNTIME_DIR: sandboxRuntimeDir,
+          HOME: sandboxHome,
           ...busEnv,
           // The app takes a single-instance lock (lib.rs) keyed on the
           // bundle identifier, which is shared by debug and release

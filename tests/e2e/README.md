@@ -104,9 +104,10 @@ cargo's git cache or cloned once into `tests/e2e/.approve/`
 `cryptography` package (`python3-cryptography` on Debian and Ubuntu).
 
 The app under test gets its own runtime directory
-(`$TMPDIR/clavix-e2e-run-<uid>`) besides its data and configuration
-sandbox: the SSH agent binds its socket there, not over the socket of
-a Clavix you may be running.
+(`$TMPDIR/clavix-e2e-run-<uid>`) and its own home directory besides its
+data and configuration sandbox: the SSH agent binds its socket there,
+not over the socket of a Clavix you may be running, and "start at
+login" writes its entry there, not into your `~/.config/autostart`.
 
 Two env vars to iterate locally without recycling Docker each run:
 
