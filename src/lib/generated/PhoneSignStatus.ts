@@ -34,6 +34,10 @@ useWhenLocked: boolean,
  */
 lockedAgentRunning: boolean, 
 /**
+ * Its socket, to point `ssh` at (`SSH_AUTH_SOCK`, `IdentityAgent`).
+ */
+socketPath: string | null, 
+/**
  * The relay refused this pairing's last sign request for a reason
  * the user has to act on.
  */

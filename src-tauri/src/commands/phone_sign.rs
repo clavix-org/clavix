@@ -68,6 +68,8 @@ pub struct PhoneSignStatus {
     pub use_when_locked: bool,
     /// The locked-vault agent is running now.
     pub locked_agent_running: bool,
+    /// Its socket, to point `ssh` at (`SSH_AUTH_SOCK`, `IdentityAgent`).
+    pub socket_path: Option<String>,
     /// The relay refused this pairing's last sign request for a reason
     /// the user has to act on.
     pub relay_refusal: Option<super::phone::RelayRefusal>,
@@ -94,14 +96,20 @@ fn unavailable() -> Error {
 }
 
 /// Settings and pairing change only while the vault is unlocked, like
-/// every other preference.
+/// every other preference. In phone-only mode there is no vault to
+/// unlock (`app_mode`): whoever uses the window manages the phones, and
+/// each signature still needs the phone's own confirmation.
 #[cfg_attr(not(phone_approval), allow(dead_code))]
 fn require_unlocked(state: &AppState) -> Result<()> {
-    if state.session.lock().is_some() {
+    if state.session.lock().is_some() || phone_only() {
         Ok(())
     } else {
         Err(Error::NotAuthenticated)
     }
+}
+
+fn phone_only() -> bool {
+    super::app_mode::load() == super::app_mode::AppMode::PhoneOnly
 }
 
 #[cfg(phone_approval)]
@@ -324,6 +332,7 @@ pub(crate) mod imp {
             label: pairing.as_ref().map(|p| p.label.clone()),
             use_when_locked: pairing.is_some() && options.use_when_locked,
             locked_agent_running,
+            socket_path: None,
             relay_refusal: pairing.as_ref().and_then(|_| REFUSAL.get()),
         })
     }
@@ -596,10 +605,12 @@ pub(crate) mod imp {
     // ---- the locked-vault agent ---------------------------------------
 
     /// The keys the locked-vault agent should offer: the paired phones',
-    /// if the user wants them used while locked. `None`: no agent.
-    pub fn locked_agent_keys(dir: &Path) -> Option<Vec<AgentKey>> {
+    /// if the user wants them used while locked. In phone-only mode that
+    /// switch does not apply: the agent is all Clavix is there for.
+    /// `None`: no agent.
+    pub fn locked_agent_keys(dir: &Path, phone_only: bool) -> Option<Vec<AgentKey>> {
         let options = load_options(dir);
-        if !options.use_when_locked {
+        if !(options.use_when_locked || phone_only) {
             return None;
         }
         let pairing = match load_pairing(dir) {
@@ -718,8 +729,15 @@ pub(crate) mod imp {
 
     /// The locked-vault agent for the pairing stored in `dir`: after a
     /// lock, and at launch (Clavix starts with the vault locked).
-    pub async fn ensure_locked_agent_from(state: &AppState, socket: PathBuf, dir: &Path) {
-        ensure_locked_agent_with(state, socket, || locked_agent_keys(dir)).await;
+    pub async fn ensure_locked_agent_from(
+        state: &AppState,
+        socket: PathBuf,
+        dir: &Path,
+        phone_only: impl Fn() -> bool,
+    ) {
+        // The mode is read each time the keys are asked for: it can
+        // change while the agent starts, like the pairing.
+        ensure_locked_agent_with(state, socket, || locked_agent_keys(dir, phone_only())).await;
     }
 
     pub async fn ensure_locked_agent(app: AppHandle) {
@@ -732,7 +750,33 @@ pub(crate) mod imp {
                 return;
             }
         };
-        ensure_locked_agent_from(&state, socket, &dir).await;
+        ensure_locked_agent_from(&state, socket, &dir, super::phone_only).await;
+    }
+
+    /// The pairing changed with no vault session open (phone-only mode):
+    /// the agent, which read its keys when it started, starts again on
+    /// the new ones, or stops when no phone is left.
+    pub async fn restart_locked_agent(app: AppHandle) {
+        use tauri::Manager;
+        {
+            let state = app.state::<AppState>();
+            let _transition = state.agent_transition.lock().await;
+            super::stop_locked_agent(&state).await;
+        }
+        ensure_locked_agent(app).await;
+    }
+
+    /// Going from phone-only to vault mode: the phones go on being
+    /// served, now under the vault mode's "while locked" switch.
+    pub fn keep_serving_when_locked(dir: &Path) -> Result<()> {
+        if load_pairing(dir)?.is_none() {
+            return Ok(());
+        }
+        let options = Options {
+            use_when_locked: true,
+            ..load_options(dir)
+        };
+        save_options(dir, options).map_err(|e| storage_error(dir, e))
     }
 
     #[cfg(test)]
@@ -833,12 +877,15 @@ pub(crate) mod imp {
             };
             exposed(status(dir, false));
             exposed(set_use_when_locked(dir, false, false));
-            assert!(locked_agent_keys(dir).is_none(), "no agent on that file");
+            assert!(
+                locked_agent_keys(dir, false).is_none(),
+                "no agent on that file"
+            );
 
             // Fixed by the user: used again.
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
             assert!(status(dir, false).unwrap().paired);
-            assert!(locked_agent_keys(dir).is_some());
+            assert!(locked_agent_keys(dir, false).is_some());
         }
 
         /// `ssh` only says "agent refused operation": the reason the
@@ -903,7 +950,10 @@ pub(crate) mod imp {
             let old = status(dir, false).unwrap();
             assert!(old.paired && old.outdated && old.use_when_locked);
             assert_eq!(old.devices.len(), 1, "still listed, to be forgotten");
-            assert!(locked_agent_keys(dir).is_none(), "its keys are not offered");
+            assert!(
+                locked_agent_keys(dir, false).is_none(),
+                "its keys are not offered"
+            );
             assert!(matches!(
                 pair_start(dir, String::new(), String::new(), String::new()).await,
                 Err(Error::Phone {
@@ -926,7 +976,7 @@ pub(crate) mod imp {
             save_pairing(dir, &sample_state()).unwrap();
             save_options(dir, Options::current(true)).unwrap();
             assert!(!status(dir, false).unwrap().outdated);
-            assert!(locked_agent_keys(dir).is_some());
+            assert!(locked_agent_keys(dir, false).is_some());
             assert!(!set_use_when_locked(dir, false, false).unwrap().outdated);
         }
 
@@ -1002,11 +1052,11 @@ pub(crate) mod imp {
         fn phone_keys_are_offered_while_locked_only_when_switched_on() {
             let tmp = tempfile::tempdir().unwrap();
             let dir = tmp.path();
-            assert!(locked_agent_keys(dir).is_none(), "nothing paired");
+            assert!(locked_agent_keys(dir, false).is_none(), "nothing paired");
             save_pairing(dir, &sample_state()).unwrap();
-            assert!(locked_agent_keys(dir).is_none(), "switched off");
+            assert!(locked_agent_keys(dir, false).is_none(), "switched off");
             save_options(dir, Options::current(true)).unwrap();
-            let keys = locked_agent_keys(dir).expect("paired and switched on");
+            let keys = locked_agent_keys(dir, false).expect("paired and switched on");
             assert_eq!(keys.len(), 1);
             assert_eq!(keys[0].comment, "iphone");
         }
@@ -1082,12 +1132,12 @@ pub(crate) mod imp {
 
             // Not paired: nothing.
             let state = AppState::default();
-            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            ensure_locked_agent_from(&state, socket.clone(), &dir, || false).await;
             assert!(state.locked_agent.lock().is_none());
 
             // Paired, switch off: nothing.
             save_pairing(&dir, &sample_state()).unwrap();
-            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            ensure_locked_agent_from(&state, socket.clone(), &dir, || false).await;
             assert!(state.locked_agent.lock().is_none());
             assert!(!socket.exists());
 
@@ -1095,12 +1145,12 @@ pub(crate) mod imp {
             save_options(&dir, Options::current(true)).unwrap();
             let unlocked = AppState::default();
             unlock(&unlocked);
-            ensure_locked_agent_from(&unlocked, socket.clone(), &dir).await;
+            ensure_locked_agent_from(&unlocked, socket.clone(), &dir, || false).await;
             assert!(unlocked.locked_agent.lock().is_none());
             assert!(!socket.exists());
 
             // Paired and on, vault locked: the phone's key is offered.
-            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            ensure_locked_agent_from(&state, socket.clone(), &dir, || false).await;
             assert!(state.locked_agent.lock().is_some());
             assert_eq!(listed(&socket).await, vec!["iphone".to_string()]);
 
@@ -1108,6 +1158,63 @@ pub(crate) mod imp {
             unlock(&state);
             assert!(state.locked_agent.lock().is_none());
             assert!(!socket.exists());
+        }
+
+        /// Phone-only mode: the agent is all Clavix is there for, so it
+        /// runs whenever a phone is paired, whatever the vault mode's
+        /// "while locked" switch says. Everything else still applies.
+        #[tokio::test]
+        async fn phone_only_mode_serves_a_paired_phone_without_the_locked_switch() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("phone-sign");
+            let socket = tmp.path().join("agent.sock");
+            let state = AppState::default();
+
+            // No phone yet: no agent, in either mode.
+            ensure_locked_agent_from(&state, socket.clone(), &dir, || true).await;
+            assert!(state.locked_agent.lock().is_none());
+
+            save_pairing(&dir, &sample_state()).unwrap();
+            save_options(&dir, Options::current(false)).unwrap();
+            assert!(locked_agent_keys(&dir, false).is_none());
+            ensure_locked_agent_from(&state, socket.clone(), &dir, || true).await;
+            assert!(state.locked_agent.lock().is_some());
+            assert_eq!(listed(&socket).await, vec!["iphone".to_string()]);
+            stop_locked_agent(&state).await;
+
+            // A pairing of an earlier protocol is not served there either.
+            save_options(&dir, Options::default()).unwrap();
+            assert!(locked_agent_keys(&dir, true).is_none());
+
+            // The mode is read again once the agent is in its slot: left
+            // meanwhile (a vault account added), the agent does not stay.
+            save_options(&dir, Options::current(false)).unwrap();
+            let asked = std::sync::atomic::AtomicUsize::new(0);
+            ensure_locked_agent_from(&state, socket.clone(), &dir, || {
+                asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0
+            })
+            .await;
+            assert!(state.locked_agent.lock().is_none());
+            assert!(!socket.exists());
+        }
+
+        /// Adding a vault to a phone-only setup: the phones go on being
+        /// served, under the vault mode's switch from then on.
+        #[test]
+        fn leaving_phone_only_mode_keeps_the_phones_served_while_locked() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("phone-sign");
+            // Nothing paired: nothing to write.
+            keep_serving_when_locked(&dir).unwrap();
+            assert!(!dir.join(OPTIONS_FILE).exists());
+
+            save_pairing(&dir, &sample_state()).unwrap();
+            save_options(&dir, Options::current(false)).unwrap();
+            keep_serving_when_locked(&dir).unwrap();
+            let options = load_options(&dir);
+            assert!(options.use_when_locked);
+            assert!(!options.outdated(), "the pairing's version is kept");
+            assert!(locked_agent_keys(&dir, false).is_some());
         }
 
         /// Logout ends sign mode on this machine: nothing is left that
@@ -1121,13 +1228,13 @@ pub(crate) mod imp {
 
             save_pairing(dir, &sample_state()).unwrap();
             save_options(dir, Options::current(true)).unwrap();
-            assert!(locked_agent_keys(dir).is_some());
+            assert!(locked_agent_keys(dir, false).is_some());
 
             let pairing = remove_for_logout(dir).expect("handed back, to revoke on the relay");
             assert_eq!(pairing.ch, sample_state().ch);
             assert!(!dir.join("state.json").exists());
             assert!(!dir.join(OPTIONS_FILE).exists());
-            assert!(locked_agent_keys(dir).is_none());
+            assert!(locked_agent_keys(dir, false).is_none());
 
             // A pairing that cannot be read is removed all the same.
             std::fs::write(dir.join("state.json"), b"not json").unwrap();
@@ -1145,7 +1252,7 @@ pub(crate) mod imp {
             save_pairing(&dir, &sample_state()).unwrap();
             save_options(&dir, Options::current(true)).unwrap();
             let state = AppState::default();
-            ensure_locked_agent_from(&state, socket.clone(), &dir).await;
+            ensure_locked_agent_from(&state, socket.clone(), &dir, || false).await;
             assert!(state.locked_agent.lock().is_some());
 
             // `auth::logout`.
@@ -1154,7 +1261,7 @@ pub(crate) mod imp {
             assert!(state.locked_agent.lock().is_none());
 
             // The next launch.
-            ensure_locked_agent_from(&AppState::default(), socket.clone(), &dir).await;
+            ensure_locked_agent_from(&AppState::default(), socket.clone(), &dir, || false).await;
             assert!(!socket.exists());
         }
 
@@ -1213,6 +1320,45 @@ pub(crate) async fn stop_locked_agent(state: &AppState) {
     }
 }
 
+/// See `imp::keep_serving_when_locked`. A no-op without the feature.
+pub(crate) fn keep_serving_when_locked() -> Result<()> {
+    #[cfg(phone_approval)]
+    imp::keep_serving_when_locked(&imp::sign_dir()?)?;
+    Ok(())
+}
+
+/// A phone is paired in sign mode on this machine (and its pairing can
+/// be read).
+pub(crate) fn paired() -> bool {
+    #[cfg(phone_approval)]
+    return imp::sign_dir()
+        .ok()
+        .and_then(|dir| imp::load_pairing(&dir).ok().flatten())
+        .is_some();
+    #[cfg(not(phone_approval))]
+    false
+}
+
+/// The pairing changed: with no vault session open, the agent serving
+/// the phones' keys follows. Runs in the background.
+#[cfg_attr(not(phone_approval), allow(dead_code))]
+fn pairing_changed(_app: &AppHandle, _state: &AppState) {
+    #[cfg(phone_approval)]
+    if _state.session.lock().is_none() {
+        tauri::async_runtime::spawn(imp::restart_locked_agent(_app.clone()));
+    }
+}
+
+/// Where the agent serving the phones' keys listens, when it runs.
+#[cfg_attr(not(phone_approval), allow(dead_code))]
+fn socket(state: &AppState) -> Option<String> {
+    state
+        .locked_agent
+        .lock()
+        .as_ref()
+        .map(|h| h.socket_path.to_string_lossy().into_owned())
+}
+
 /// Logout: forget the sign-mode pairing (see `imp::forget_on_logout`). A
 /// no-op without the feature.
 pub(crate) fn forget_on_logout() {
@@ -1247,7 +1393,10 @@ fn running(state: &AppState) -> bool {
 #[tauri::command]
 pub fn phone_sign_status(_state: State<'_, AppState>) -> Result<PhoneSignStatus> {
     #[cfg(phone_approval)]
-    return imp::status(&imp::sign_dir()?, running(&_state));
+    return imp::status(&imp::sign_dir()?, running(&_state)).map(|s| PhoneSignStatus {
+        socket_path: socket(&_state),
+        ..s
+    });
     #[cfg(not(phone_approval))]
     Ok(PhoneSignStatus {
         available: false,
@@ -1258,6 +1407,7 @@ pub fn phone_sign_status(_state: State<'_, AppState>) -> Result<PhoneSignStatus>
         label: None,
         use_when_locked: false,
         locked_agent_running: false,
+        socket_path: None,
         relay_refusal: None,
     })
 }
@@ -1288,12 +1438,22 @@ pub async fn phone_sign_pair_wait() -> Result<PhonePairCandidate> {
 }
 
 #[tauri::command]
-pub async fn phone_sign_pair_confirm(state: State<'_, AppState>) -> Result<PhoneSignConfirmed> {
+pub async fn phone_sign_pair_confirm(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<PhoneSignConfirmed> {
     require_unlocked(&state)?;
     #[cfg(phone_approval)]
-    return imp::pair_confirm(&imp::sign_dir()?, running(&state)).await;
+    {
+        let done = imp::pair_confirm(&imp::sign_dir()?, running(&state)).await?;
+        pairing_changed(&app, &state);
+        Ok(done)
+    }
     #[cfg(not(phone_approval))]
-    Err(unavailable())
+    {
+        let _ = app;
+        Err(unavailable())
+    }
 }
 
 #[tauri::command]
@@ -1304,16 +1464,21 @@ pub fn phone_sign_pair_cancel() {
 
 #[tauri::command]
 pub async fn phone_sign_forget(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     local_only: bool,
 ) -> Result<PhoneSignStatus> {
     require_unlocked(&state)?;
     #[cfg(phone_approval)]
-    return imp::forget(&imp::sign_dir()?, &id, local_only, running(&state)).await;
+    {
+        let status = imp::forget(&imp::sign_dir()?, &id, local_only, running(&state)).await?;
+        pairing_changed(&app, &state);
+        Ok(status)
+    }
     #[cfg(not(phone_approval))]
     {
-        let _ = (id, local_only);
+        let _ = (app, id, local_only);
         Err(unavailable())
     }
 }
