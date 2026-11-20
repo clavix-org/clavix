@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use clavix_approve_core::bytes::unb64u;
 use clavix_approve_core::channel::{Identity, Peer};
-use clavix_approve_core::relay::RelayClient;
+use clavix_approve_core::relay::{RelayClient, RelayError};
 use clavix_approve_core::sign_requester::{
     self as sr, Caller, SessionBind, SignDevice, SignError, SignRequester,
 };
@@ -127,6 +127,14 @@ pub fn describe(e: SignError) -> String {
              ssh may try the next phone's key",
             after.as_secs()
         ),
+        SignError::Relay(RelayError::SubscriptionRequired) => {
+            "the relay requires a subscription and none covers this pairing: open Clavix \
+             Approve on the iPhone to subscribe or renew"
+                .into()
+        }
+        SignError::Relay(RelayError::MachineLimit) => {
+            "the subscription already covers as many machines as it may".into()
+        }
         e @ (SignError::BackingOff
         | SignError::Busy
         | SignError::Relay(_)
@@ -138,7 +146,11 @@ impl PhoneSigner for RelayPhoneSigner {
     fn sign(&self, req: SignRequest) -> PhoneSignFuture {
         let hints = crate::commands::ssh::phone_hints(&req.hops);
         let signature = self.requester.sign(&to_request(req, hints));
-        Box::pin(async move { signature.await.map_err(describe) })
+        Box::pin(async move {
+            let outcome = signature.await;
+            crate::commands::phone_sign::imp::note_request(&outcome);
+            outcome.map_err(describe)
+        })
     }
 }
 
@@ -263,5 +275,8 @@ pub(crate) mod tests {
         });
         assert!(late.contains("20 s") && late.contains("next phone"));
         assert!(describe(SignError::Expired).contains("in time"));
+        assert!(describe(SignError::Relay(RelayError::SubscriptionRequired))
+            .contains("open Clavix Approve on the iPhone"));
+        assert!(describe(SignError::Relay(RelayError::MachineLimit)).contains("machines"));
     }
 }

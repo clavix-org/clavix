@@ -17,6 +17,10 @@ vi.mock("./api", () => ({
     stopSshAgent: vi.fn(),
     enrollYubikeyUnlock: vi.fn(),
     disenrollYubikeyUnlock: vi.fn(),
+    phoneStatus: vi.fn().mockResolvedValue({ available: false }),
+    phoneSignStatus: vi.fn().mockResolvedValue({ available: false }),
+    phonePairCancel: vi.fn().mockResolvedValue(undefined),
+    phoneSignPairCancel: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -89,6 +93,42 @@ function key(target: Element, k: string) {
 }
 
 describe("PreferencesDialog", () => {
+  // The dialog's content stays mounted while it is closed, SSH tab
+  // included: what happened meanwhile must not be hidden by a status
+  // read at the first opening.
+  it("reads the phone pairing again each time it is opened", async () => {
+    const paired = {
+      available: true,
+      paired: true,
+      outdated: false,
+      devices: [{ id: "cd", name: "iphone", publicKey: "ecdsa-sha2-nistp256 AAAA iphone", fingerprint: "SHA256:abc" }],
+      relay: "https://approve.clavix.org",
+      label: "desk",
+      useWhenLocked: true,
+      lockedAgentRunning: false,
+      relayRefusal: null,
+    };
+    vi.mocked(api.phoneSignStatus).mockResolvedValue(paired as never);
+    const { component, container, tabs } = mount();
+    await component.open();
+    tabs()
+      .find((t) => t.id === "prefs-tab-ssh")
+      ?.click();
+    await flush();
+    await flush();
+    expect(container.querySelector(".phone-sign-devices")).not.toBeNull();
+    expect(container.querySelector(".phone-sign-refusal")).toBeNull();
+
+    // A sign request is refused by the relay while the dialog is closed.
+    container.querySelector("dialog")?.close();
+    vi.mocked(api.phoneSignStatus).mockResolvedValue({ ...paired, relayRefusal: "subscription_required" } as never);
+    await component.open();
+    await flush();
+    await flush();
+    expect(container.querySelector(".phone-sign-refusal")?.textContent).toContain("Clavix Approve");
+    vi.mocked(api.phoneSignStatus).mockResolvedValue({ available: false } as never);
+  });
+
   it("reads the OS autostart setting and disables it on request", async () => {
     vi.mocked(api.autostartEnabled).mockResolvedValue(true);
     const { component, tabs, panel } = mount();

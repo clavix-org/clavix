@@ -37,6 +37,12 @@ export function formatError(e: unknown): string {
           return m.err_phone_expired();
         case "outdated":
           return m.err_phone_outdated();
+        case "subscription_required":
+          return m.err_phone_subscription_required();
+        case "machine_limit":
+          return m.err_phone_machine_limit();
+        case "exposed":
+          return m.err_phone_exposed({ reason });
         default:
           return m.err_phone_relay({ reason });
       }

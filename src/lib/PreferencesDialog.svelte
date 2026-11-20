@@ -310,7 +310,14 @@
     }
   }
 
+  // Counts the openings: the phone blocks read their state when they are
+  // mounted, and the dialog's content stays mounted while it is closed.
+  // What changed meanwhile (the relay refused a request, the vault was
+  // locked and unlocked) must show when the dialog is opened again.
+  let opened = $state(0);
+
   export async function open() {
+    opened += 1;
     dialog?.showModal();
     void refreshAutostart();
     // Deliberately not awaited before the SSH/Yubikey refreshes: it's a
@@ -687,12 +694,14 @@
             <p class="hint">{m.settings_ssh_autostart_hint()}</p>
           </dd>
         </dl>
-        <PhoneApprovalSettings
-          options={phoneApproval}
-          confirmPolicy={sshAgentConfirm}
-          onApply={onApplyPhoneApproval}
-        />
-        <PhoneSignSettings />
+        {#key opened}
+          <PhoneApprovalSettings
+            options={phoneApproval}
+            confirmPolicy={sshAgentConfirm}
+            onApply={onApplyPhoneApproval}
+          />
+          <PhoneSignSettings />
+        {/key}
       </div>
     {:else}
       <div class="prefs-panel" role="tabpanel" id="prefs-panel-yubikey" aria-labelledby="prefs-tab-yubikey">

@@ -27,6 +27,7 @@ const UNPAIRED = {
   label: null,
   useWhenLocked: false,
   lockedAgentRunning: false,
+  relayRefusal: null,
 };
 const PAIRED = {
   ...UNPAIRED,
@@ -63,6 +64,33 @@ describe("PhoneSignSettings", () => {
     setup({ ...UNPAIRED, available: false });
     await flush();
     expect(document.querySelector(".phone-sign")).toBeNull();
+  });
+
+  it("says why when the pairing cannot be read, instead of showing nothing", async () => {
+    apiMock.phoneSignStatus.mockRejectedValue({
+      code: "phone_error",
+      data: { kind: "exposed", reason: "/home/u/phone-sign/state.json is accessible by other users" },
+    });
+    render(PhoneSignSettings);
+    await flush();
+    const text = document.querySelector(".phone-sign .audit-error")?.textContent ?? "";
+    expect(text).toContain("chmod 600");
+    expect(text).toContain("/home/u/phone-sign/state.json");
+    expect(button(/./)).toBeUndefined();
+  });
+
+  it("says what the hosted relay refused the last sign request for", async () => {
+    setup({ ...PAIRED, relayRefusal: "subscription_required" });
+    await flush();
+    expect(document.querySelector(".phone-sign-refusal")?.textContent).toContain("Clavix Approve");
+    cleanup();
+    setup({ ...PAIRED, relayRefusal: "machine_limit" });
+    await flush();
+    expect(document.querySelector(".phone-sign-refusal")?.textContent).toMatch(/machines/);
+    cleanup();
+    setup(PAIRED);
+    await flush();
+    expect(document.querySelector(".phone-sign-refusal")).toBeNull();
   });
 
   it("lists the signing phones with their key and the locked-vault switch", async () => {

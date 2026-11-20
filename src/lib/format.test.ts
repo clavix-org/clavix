@@ -214,6 +214,9 @@ describe("formatError", () => {
       "gone",
       "expired",
       "outdated",
+      "subscription_required",
+      "machine_limit",
+      "exposed",
       "relay",
     ]) {
       const msg = formatError({ code: "phone_error", data: { kind, reason: "x" } });
@@ -221,13 +224,21 @@ describe("formatError", () => {
       expect(msg.length).toBeGreaterThan(10);
       seen.add(msg);
     }
-    expect(seen.size).toBe(8);
+    expect(seen.size).toBe(11);
     // The detail is shown where it helps, and a kind this UI does not
     // know yet still says something.
     expect(
       formatError({ code: "phone_error", data: { kind: "bad_relay_url", reason: "must use https" } }),
     ).toContain("must use https");
     expect(formatError({ code: "phone_error", data: { kind: "new_kind", reason: "why" } })).toContain("why");
+    // The hosted relay's refusals say what to do, not an HTTP status.
+    expect(formatError({ code: "phone_error", data: { kind: "subscription_required", reason: "x" } })).toContain(
+      "Clavix Approve",
+    );
+    // The file to fix is named by the detail.
+    expect(
+      formatError({ code: "phone_error", data: { kind: "exposed", reason: "/home/u/state.json (mode 644)" } }),
+    ).toContain("/home/u/state.json");
   });
   it("keeps the plain HTTP error for a JSON API error", () => {
     const msg = formatError({

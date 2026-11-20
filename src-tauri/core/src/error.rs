@@ -25,6 +25,17 @@ pub enum PhoneErrorKind {
     /// protocol, which the phone no longer honours: forget it and pair
     /// again.
     Outdated,
+    /// The relay serves subscribers only and no current subscription
+    /// covers this pairing (HTTP 402): the user subscribes, or renews, in
+    /// the Clavix Approve app on the phone.
+    SubscriptionRequired,
+    /// The subscription already covers as many machines as it may (HTTP
+    /// 403 `machine_limit`).
+    MachineLimit,
+    /// The stored pairing can be read or written by other users of this
+    /// machine: it holds secrets, so it is not used until its permissions
+    /// are fixed.
+    Exposed,
     /// The relay answered, but not what was expected: an error status, a
     /// body that is not the protocol's, a pairing answer that does not
     /// authenticate, a revocation it did not confirm.

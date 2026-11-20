@@ -140,6 +140,13 @@
               {m.phone_approval_outdated()}
             </p>
           {/if}
+          {#if status.relayRefusal}
+            <p class="hint phone-approval-warning phone-approval-refusal" role="alert">
+              {status.relayRefusal === "machine_limit"
+                ? m.err_phone_machine_limit()
+                : m.err_phone_subscription_required()}
+            </p>
+          {/if}
         </dd>
         {#if !status.outdated}
         <dt>{m.phone_approval_ask()}</dt>

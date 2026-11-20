@@ -183,6 +183,13 @@
               {m.phone_approval_outdated()}
             </p>
           {/if}
+          {#if status.relayRefusal}
+            <p class="hint phone-sign-warning phone-sign-refusal" role="alert">
+              {status.relayRefusal === "machine_limit"
+                ? m.err_phone_machine_limit()
+                : m.err_phone_subscription_required()}
+            </p>
+          {/if}
           {#if forgetFailed}
             <p class="hint phone-sign-warning" role="alert">
               {m.phone_sign_forget_local_warning()}
@@ -310,6 +317,13 @@
     {#if error}
       <p class="audit-error">{error}</p>
     {/if}
+  </section>
+{:else if !status && error}
+  <!-- The pairing could not even be read (its file is open to other
+       users, say): say so instead of showing nothing. -->
+  <section class="phone-sign" aria-labelledby="phone-sign-title">
+    <h3 id="phone-sign-title">{m.phone_sign_title()}</h3>
+    <p class="audit-error">{error}</p>
   </section>
 {/if}
 
