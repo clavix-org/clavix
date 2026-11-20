@@ -370,9 +370,13 @@
     margin: 0 0 0.25rem;
     font-size: 1rem;
   }
+  /* Each phone is a flex row, which draws no list marker: an indent
+     kept for a bullet would only push the rows off the relay line and
+     the hints below them. */
   .phone-sign-devices {
     margin: 0;
-    padding-left: 1.1rem;
+    padding-left: 0;
+    list-style: none;
   }
   .phone-sign-devices li {
     display: flex;
