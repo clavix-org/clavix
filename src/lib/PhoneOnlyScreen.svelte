@@ -10,6 +10,7 @@
   import { api } from "./api";
   import { formatError } from "./format";
   import PhoneSignSettings from "./PhoneSignSettings.svelte";
+  import RelayStatus from "./RelayStatus.svelte";
   import type { PhoneSignStatus } from "./types";
 
   let { onAddVault }: { onAddVault: () => void } = $props();
@@ -78,6 +79,12 @@
 </script>
 
 <section class="box phone-only">
+  <!-- The relay is all this setup depends on: its state sits on top,
+       where the toolbar shows it in a vault. Hidden until a phone is
+       paired; probed again as soon as one is. -->
+  <div class="phone-only-relay">
+    <RelayStatus refresh={status?.paired ? status.relay : null} />
+  </div>
   <PhoneSignSettings phoneOnly {onStatus} />
 
   {#if status?.paired}
@@ -136,6 +143,18 @@
     color: var(--text);
     box-shadow: var(--shadow-card);
     text-align: left;
+  }
+
+  .phone-only-relay {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .phone-only-relay:empty {
+    display: none;
   }
 
   h3 {

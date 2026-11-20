@@ -8,6 +8,7 @@
   } from "./format";
   import Icon from "./Icon.svelte";
   import Mark from "./Mark.svelte";
+  import RelayStatus from "./RelayStatus.svelte";
   import type { ToolbarAlign } from "./prefs.svelte";
 
   type Props = {
@@ -223,6 +224,7 @@
 
   <!-- Session indicator, right-aligned in both modes -->
   <div class="tb-status">
+    <RelayStatus separator />
     <span
       class="tb-dot tb-dot--{status}"
       class:pulse={status === "syncing"}
