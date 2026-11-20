@@ -296,6 +296,18 @@ What happens instead, on a lock and at launch (Clavix starts locked), if a phone
 
 Accepted new risk: while the vault is locked, a server that trusts the phone's key can be reached with the phone's approval alone. That is the purpose of the option; turning it off, or forgetting the phone, ends it.
 
+### Phone-only mode
+
+Clavix can be used with no vault at all: no account, no server, no master password, only the key-less agent above for the phones paired in sign mode. The mode is chosen at first launch, or when signing out of a vault with the explicit choice to keep the phone. It is recorded in `<config dir>/clavix/mode.json`, which holds no secret and exists only on builds that have the phone features.
+
+What the mode changes, and nothing else:
+
+- **Pairing and forgetting a phone need no unlocked vault**, since there is none. In vault mode these still require the vault to be unlocked. Whoever can use the Clavix window of an unlocked desktop session can therefore pair another phone, whose key they would then have to install on a server themselves, or forget one. They cannot sign: every signature needs the phone's own confirmation (Face ID), for a destination the phone shows.
+- **The agent runs whenever a phone is paired**, from launch, without the "use it when the vault is locked" switch, which is a vault-mode setting. It holds no private key, as in vault mode.
+- **Signing out with "keep the phone"** keeps the sign-mode pairing and switches to this mode, instead of deleting the pairing. This is the one case where an agent runs after a logout; it is never the default. The vault session, its cache and the approve-mode pairing are removed as in any logout.
+
+The mode cannot be entered while a vault account is stored on the machine, other than through that sign-out. Adding a vault later switches back to vault mode and keeps the pairing, with the "while locked" switch turned on. A process running as the user can write `mode.json`; it could as well read the pairing files or talk to the agent socket, which the table above already accounts for, and the phone's confirmation remains the control.
+
 ### Known limitations of the phone features
 
 An internal review of the phone features was done before they were enabled by default. Its findings in the pinned `clavix-approve-core` are fixed: a sign-mode request is withdrawn from the relay and the phone when `ssh` closes its connection or the request times out locally; the sign-mode pairing file is refused when other users can read or write it (Clavix then reports it and runs no locked-vault agent on it), its directory is put back to 0700 at each save, and it is replaced through a new, randomly named temporary file; the relay client follows no redirect and accepts plain `http` only for a literal loopback address. What remains:

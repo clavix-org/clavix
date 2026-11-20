@@ -620,8 +620,12 @@ pub fn lock(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     Ok(())
 }
 
+/// `keep_phone`: sign out of the vault but keep the phone paired in sign
+/// mode, and go on as a phone-only setup (`app_mode`). The user is asked;
+/// without it, logging out ends that pairing as before.
 #[tauri::command]
-pub fn logout(state: State<'_, AppState>) -> Result<()> {
+pub fn logout(app: AppHandle, state: State<'_, AppState>, keep_phone: Option<bool>) -> Result<()> {
+    let keep_phone = keep_phone.unwrap_or(false) && crate::commands::phone_sign::paired();
     // Logging out ends the phone pairings with the account: the phone
     // that approves (stored in `session.json`, deleted below) and the
     // phone that signs while the vault is locked, whose files live
@@ -630,13 +634,23 @@ pub fn logout(state: State<'_, AppState>) -> Result<()> {
     // locked-vault agent caught mid-start re-reads the pairing once it
     // is in its slot, and must find it gone.
     crate::commands::phone::revoke_on_logout();
-    crate::commands::phone_sign::forget_on_logout();
+    if keep_phone {
+        // Written before the agents stop, for the same reason: the mode
+        // is what lets the agent run with nobody logged in.
+        let dir = crate::commands::app_mode::mode_dir()?;
+        crate::commands::app_mode::save_to(&dir, crate::commands::app_mode::AppMode::PhoneOnly)?;
+    } else {
+        crate::commands::phone_sign::forget_on_logout();
+    }
     // Session first, then the agents: see `ssh::lock_session_sync`.
     crate::commands::ssh::lock_session_sync(&state);
     clear_pending_two_factor(&state);
     store::clear_session()?;
     if let Err(e) = cache::clear_all() {
         eprintln!("[clavix] vault cache clear failed: {e}");
+    }
+    if keep_phone {
+        crate::commands::phone_sign::after_vault_lock(&app);
     }
     Ok(())
 }

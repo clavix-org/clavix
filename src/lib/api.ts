@@ -14,6 +14,8 @@ import type {
   PhoneApprovalOptions,
   PhoneSignConfirmed,
   PhoneSignStatus,
+  AppMode,
+  AppModeStatus,
   PhonePairCandidate,
   PhonePairOffer,
   PhoneStatus,
@@ -115,7 +117,12 @@ export const api = {
 
   lock: () => invoke<void>("lock"),
 
-  logout: () => invoke<void>("logout"),
+  // `keepPhone`: sign out of the vault but keep the phone paired in sign
+  // mode, and go on in phone-only mode.
+  logout: (keepPhone = false) => invoke<void>("logout", { keepPhone }),
+
+  appMode: () => invoke<AppModeStatus>("app_mode"),
+  setAppMode: (mode: AppMode) => invoke<AppModeStatus>("set_app_mode", { mode }),
 
   setAutoLock: (trigger: AutoLockTrigger, minutes: number) =>
     invoke<void>("set_auto_lock", { trigger, minutes }),

@@ -200,6 +200,8 @@ pub fn run() {
             commands::auth::unlock,
             commands::auth::lock,
             commands::auth::logout,
+            commands::app_mode::app_mode,
+            commands::app_mode::set_app_mode,
             commands::auth::set_auto_lock,
             commands::auth::screen_lock_available,
             commands::auth::webauthn_sign_challenge,
