@@ -8,8 +8,8 @@
 //! never reaches the Vaultwarden server.
 //!
 //! The commands exist in every build so the front end has one surface;
-//! without the `phone-approval` feature they report the feature as
-//! unavailable.
+//! without the `phone-approval` feature, and on Windows, they report the
+//! feature as unavailable.
 
 use serde::Serialize;
 use tauri::State;

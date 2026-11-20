@@ -198,18 +198,15 @@ pub(crate) mod imp {
     }
 
     /// Written like the crate writes `state.json`: readable by the user
-    /// only, replaced atomically. (On Windows the file inherits the user
-    /// profile's ACLs.)
+    /// only, replaced atomically.
     pub fn save_options(dir: &Path, options: Options) -> std::io::Result<()> {
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);
-        #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         builder.create(dir)?;
         let tmp = dir.join(format!("{OPTIONS_FILE}.tmp"));
         let mut open = std::fs::OpenOptions::new();
         open.write(true).create(true).truncate(true);
-        #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
         let mut file = open.open(&tmp)?;
         file.write_all(&serde_json::to_vec(&options).map_err(std::io::Error::other)?)?;
