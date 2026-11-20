@@ -8,8 +8,8 @@
 //! never reaches the Vaultwarden server.
 //!
 //! The commands exist in every build so the front end has one surface;
-//! without the `phone-approval` feature they report the feature as
-//! unavailable.
+//! without the `phone-approval` feature, and on Windows, they report the
+//! feature as unavailable.
 
 use serde::Serialize;
 use tauri::State;
@@ -22,7 +22,7 @@ use clavix_core::error::{Error, Result};
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct PhoneStatus {
-    /// This build can talk to a relay (`phone-approval` feature).
+    /// This build can talk to a relay (`phone-approval` feature, Unix only).
     pub available: bool,
     /// A pairing is loaded (the vault is unlocked and a phone is paired).
     pub paired: bool,
@@ -58,14 +58,14 @@ pub struct PhonePairCandidate {
     pub device_name: String,
 }
 
-#[cfg_attr(feature = "phone-approval", allow(dead_code))]
+#[cfg_attr(phone_approval, allow(dead_code))]
 fn unavailable() -> Error {
     Error::Storage {
         reason: "this build of Clavix cannot approve on a phone".into(),
     }
 }
 
-#[cfg(feature = "phone-approval")]
+#[cfg(phone_approval)]
 mod imp {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -680,29 +680,29 @@ mod imp {
     }
 }
 
-#[cfg(feature = "phone-approval")]
+#[cfg(phone_approval)]
 pub(crate) use imp::{no_pairing, outdated, phone_error, qr_svg, relay_call_error, relay_client};
 
 /// Logout: revoke the approve-mode pairing on the relay, best effort. A
 /// no-op without the feature.
 pub(crate) fn revoke_on_logout() {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     imp::revoke_on_logout();
 }
 
 /// Load the stored pairing (vault just unlocked). No-op without the
 /// feature.
 pub(crate) fn load_paired_phone(_state: &AppState) {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     imp::load(_state);
 }
 
 /// Forget the loaded pairing (vault locked). The stored, encrypted copy
 /// stays.
 pub(crate) fn unload_paired_phone(state: &AppState) {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     imp::unload(state);
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     {
         *state.phone_approver.lock() = std::sync::Arc::new(crate::phone_approval::NoPhone);
     }
@@ -710,9 +710,9 @@ pub(crate) fn unload_paired_phone(state: &AppState) {
 
 #[tauri::command]
 pub fn phone_status() -> PhoneStatus {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::status();
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     PhoneStatus {
         available: false,
         paired: false,
@@ -729,38 +729,38 @@ pub async fn phone_pair_start(
     _enroll_secret: String,
     _label: String,
 ) -> Result<PhonePairOffer> {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::pair_start(&_state, _relay, _enroll_secret, _label).await;
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     Err(unavailable())
 }
 
 #[tauri::command]
 pub async fn phone_pair_wait() -> Result<PhonePairCandidate> {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::pair_wait().await;
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     Err(unavailable())
 }
 
 #[tauri::command]
 pub fn phone_pair_confirm(_state: State<'_, AppState>) -> Result<PhoneStatus> {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::pair_confirm(&_state);
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     Err(unavailable())
 }
 
 #[tauri::command]
 pub fn phone_pair_cancel() {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     imp::pair_cancel();
 }
 
 #[tauri::command]
 pub async fn phone_forget(_state: State<'_, AppState>) -> Result<PhoneStatus> {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::forget(&_state).await;
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     Err(unavailable())
 }

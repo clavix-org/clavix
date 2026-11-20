@@ -240,7 +240,7 @@ What it explicitly does **not** change:
 
 ## Optional: Approving SSH Signatures on a Phone
 
-Off by default, and only in builds with the `phone-approval` feature. When the SSH agent's confirmation policy asks before signing, a paired phone can answer instead of the local dialog, after a passkey user verification on the phone. The protocol and the relay are the Clavix Approve project's (its `PROTOCOL.md`, "Approve mode", and `DESKTOP_APPROVAL.md`); this section covers what Clavix adds.
+Built into the Linux and macOS builds (the `phone-approval` cargo feature, on by default; a build made with `--no-default-features` does not contain it, and neither does any Windows build). It does nothing until the user pairs a phone and turns the option on: no relay is contacted before that. When the SSH agent's confirmation policy asks before signing, a paired phone can answer instead of the local dialog, after a passkey user verification on the phone. The protocol and the relay are the Clavix Approve project's (its `PROTOCOL.md`, "Approve mode", and `DESKTOP_APPROVAL.md`); this section covers what Clavix adds.
 
 What does not change:
 
@@ -272,7 +272,7 @@ Approving does not help once the vault is locked: the keys are gone, so there is
 
 ## Optional: Signing With the Phone's Key While the Vault Is Locked
 
-Same feature flag, off by default, and a separate opt-in: a second pairing, in the Clavix Approve *sign mode* (the protocol fixes a channel's mode at pairing, so it cannot be the approve-mode channel above). It is what the standalone `clavix-agent` does, built into Clavix for the time the vault is locked.
+Same feature flag, same builds, and a separate opt-in: a second pairing, in the Clavix Approve *sign mode* (the protocol fixes a channel's mode at pairing, so it cannot be the approve-mode channel above). It is what the standalone `clavix-agent` does, built into Clavix for the time the vault is locked.
 
 What does not change: **a locked session holds no keys.** Every lock path (manual, tray, auto-lock) stops the vault agent and drops the vault keys, exactly as before. Nothing in this section keeps a vault key, or anything derived from one, in memory.
 
@@ -285,7 +285,7 @@ What happens instead, on a lock and at launch (Clavix starts locked), if a phone
 - On unlock, the key-less agent stops before the vault agent starts again (or simply stops, if the vault agent does not restart on unlock).
 - Logout ends sign mode on this machine: the key-less agent stops, the pairing files are deleted, and the pairing is revoked on the relay (best effort, in the background). Nothing is left to start the agent at the next launch, and a different account that logs in afterwards does not inherit the phone. The approve-mode pairing goes with `session.json`, and is revoked on the relay too when the vault is unlocked at logout. Pairing again is required after logging back in.
 
-**Stored outside the vault.** It has to work while the vault is locked, so the pairing cannot be encrypted with the user key like the approve-mode one. It is kept like `clavix-agent` keeps it: the `clavix-approve-core` state file (relay URL, bearer token, this machine's channel keys, the phones' public keys) in `<config dir>/clavix/phone-sign/state.json`, plus the on/off switch in `options.json`, both 0600 in a 0700 directory (on Windows, the user profile's ACLs; the feature is not built there today). The trade-off, accepted: these secrets only let a process **ask** a paired phone for a signature. The phone shows the destination, requires biometrics, and signs with a key that never leaves it; the secrets never sign anything. A process that reads them gains what any process able to reach the agent socket already has: the ability to send the phone a request the user can refuse.
+**Stored outside the vault.** It has to work while the vault is locked, so the pairing cannot be encrypted with the user key like the approve-mode one. It is kept like `clavix-agent` keeps it: the `clavix-approve-core` state file (relay URL, bearer token, this machine's channel keys, the phones' public keys) in `<config dir>/clavix/phone-sign/state.json`, plus the on/off switch in `options.json`, both 0600 in a 0700 directory (the feature is not built on Windows). The trade-off, accepted: these secrets only let a process **ask** a paired phone for a signature. The phone shows the destination, requires biometrics, and signs with a key that never leaves it; the secrets never sign anything. A process that reads them gains what any process able to reach the agent socket already has: the ability to send the phone a request the user can refuse.
 
 | Attacker | Effect |
 |---|---|
@@ -295,6 +295,17 @@ What happens instead, on a lock and at launch (Clavix starts locked), if a phone
 | A stolen disk with the vault locked | Gets the channel secrets: it can ask the phone, as above, from a machine of its choosing, until the pairing is forgotten (Settings revokes it on the relay). |
 
 Accepted new risk: while the vault is locked, a server that trusts the phone's key can be reached with the phone's approval alone. That is the purpose of the option; turning it off, or forgetting the phone, ends it.
+
+### Known limitations of the phone features
+
+An internal review of the phone features, done before they were enabled by default, left these low-severity points open. They are stated here rather than fixed:
+
+- **A sign-mode request can outlive whoever asked for it.** When `ssh` is interrupted, or the request times out locally, the request stays on the relay and on the phone until it expires (90 s at most). Approving it then makes the phone sign a login nobody is waiting for. The signature is sealed for this computer and bound to one SSH session. Approve mode withdraws its requests on every exit; sign mode does not yet (in `clavix-approve-core`).
+- **The sign-mode files are protected by file permissions only.** They are written 0600 in a 0700 directory, but the modes are set when the files are created, not checked or repaired afterwards, and the files are not authenticated. A process running as the user can read or replace them, which the table above already accounts for; a copy of the configuration directory (a backup, synced dotfiles) carries the channel secrets with it.
+- **The relay client follows HTTP redirects, and accepts `http://localhost` by name.** The bearer token is not sent to another host on a redirect and request bodies are sealed, so no way to exploit this is known. A relay address must otherwise be `https`.
+- **macOS is built but has not been exercised on a device.** The code is the Unix code that Linux runs and CI compiles and unit-tests it on macOS, but no pairing or signature was tested there. The agent socket is in `~/Library/Caches/clavix` and the sign-mode files in `~/Library/Application Support/clavix`, which Time Machine backs up.
+- **Windows has no phone features.** The storage relies on Unix file modes and the Windows agent (named pipe, Pageant) has no locked-vault counterpart. The settings do not show the phone blocks there.
+- **The Flatpak build does not contain them yet**: it is built with `--no-default-features`.
 
 ## Out of Scope for the Current Design
 

@@ -108,6 +108,14 @@ Against a real Vaultwarden instance, Clavix:
   signing relies on `crypto-bigint` 0.5, which has an open timing
   advisory ([RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html))
   with no fix on that line yet. Ed25519 and RSA keys don't use it.
+- on Linux and macOS, can involve your **phone** in SSH logins, with the
+  [Clavix Approve](https://github.com/clavix-org/clavix-approve) app:
+  approve the agent's confirmations on the phone instead of the desktop
+  dialog, or sign with the phone's own key while the vault is locked.
+  Both are off until you pair a phone in *Preferences → SSH agent*, and
+  go through a relay (`https://approve.clavix.org` by default, or your
+  own) that only sees sealed messages. See
+  [THREAT_MODEL.md](THREAT_MODEL.md) for what this changes.
 
 The master password never hits the server nor the disk: only derived
 values are exchanged (master password hash for authentication, master
@@ -353,6 +361,13 @@ which get updates from their package manager, should add
 `--no-default-features` to the `cargo build` command: the check is then
 not compiled in, and the About dialog says that updates come from the
 distribution.
+
+`--no-default-features` also leaves out the phone features (the
+`phone-approval` feature, Linux and macOS only). To keep them, name the
+feature again: `--no-default-features --features
+tauri/custom-protocol,phone-approval`. It adds one git dependency,
+`clavix-approve-core`, pinned by revision in `src-tauri/Cargo.toml`;
+`cargo vendor` vendors it like the others.
 
 ## Flatpak
 

@@ -20,7 +20,8 @@
 //! key that never leaves it. They never sign anything themselves.
 //!
 //! The commands exist in every build so the front end has one surface;
-//! without the `phone-approval` feature they report it unavailable.
+//! without the `phone-approval` feature, and on Windows, they report it
+//! unavailable.
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -50,7 +51,7 @@ pub struct PhoneSignDevice {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct PhoneSignStatus {
-    /// This build can talk to a relay (`phone-approval` feature).
+    /// This build can talk to a relay (`phone-approval` feature, Unix only).
     pub available: bool,
     /// At least one phone is paired in sign mode.
     pub paired: bool,
@@ -82,7 +83,7 @@ pub struct PhoneSignConfirmed {
     pub renewed: bool,
 }
 
-#[cfg_attr(feature = "phone-approval", allow(dead_code))]
+#[cfg_attr(phone_approval, allow(dead_code))]
 fn unavailable() -> Error {
     Error::Storage {
         reason: "this build of Clavix cannot sign with a phone".into(),
@@ -91,7 +92,7 @@ fn unavailable() -> Error {
 
 /// Settings and pairing change only while the vault is unlocked, like
 /// every other preference.
-#[cfg_attr(not(feature = "phone-approval"), allow(dead_code))]
+#[cfg_attr(not(phone_approval), allow(dead_code))]
 fn require_unlocked(state: &AppState) -> Result<()> {
     if state.session.lock().is_some() {
         Ok(())
@@ -100,7 +101,7 @@ fn require_unlocked(state: &AppState) -> Result<()> {
     }
 }
 
-#[cfg(feature = "phone-approval")]
+#[cfg(phone_approval)]
 pub(crate) mod imp {
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -197,18 +198,15 @@ pub(crate) mod imp {
     }
 
     /// Written like the crate writes `state.json`: readable by the user
-    /// only, replaced atomically. (On Windows the file inherits the user
-    /// profile's ACLs.)
+    /// only, replaced atomically.
     pub fn save_options(dir: &Path, options: Options) -> std::io::Result<()> {
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);
-        #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         builder.create(dir)?;
         let tmp = dir.join(format!("{OPTIONS_FILE}.tmp"));
         let mut open = std::fs::OpenOptions::new();
         open.write(true).create(true).truncate(true);
-        #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
         let mut file = open.open(&tmp)?;
         file.write_all(&serde_json::to_vec(&options).map_err(std::io::Error::other)?)?;
@@ -1091,7 +1089,7 @@ pub(crate) async fn stop_locked_agent(state: &AppState) {
 /// Logout: forget the sign-mode pairing (see `imp::forget_on_logout`). A
 /// no-op without the feature.
 pub(crate) fn forget_on_logout() {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     imp::forget_on_logout();
 }
 
@@ -1099,7 +1097,7 @@ pub(crate) fn forget_on_logout() {
 /// its place, if a phone is paired in sign mode and the user wants it.
 /// Runs in the background; a no-op without the feature.
 pub(crate) fn after_vault_lock(_app: &AppHandle) {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     tauri::async_runtime::spawn(imp::ensure_locked_agent(_app.clone()));
 }
 
@@ -1114,16 +1112,16 @@ pub(crate) fn at_launch(app: &AppHandle) {
     after_vault_lock(app);
 }
 
-#[cfg_attr(not(feature = "phone-approval"), allow(dead_code))]
+#[cfg_attr(not(phone_approval), allow(dead_code))]
 fn running(state: &AppState) -> bool {
     state.locked_agent.lock().is_some()
 }
 
 #[tauri::command]
 pub fn phone_sign_status(_state: State<'_, AppState>) -> Result<PhoneSignStatus> {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return Ok(imp::status(&imp::sign_dir()?, running(&_state)));
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     Ok(PhoneSignStatus {
         available: false,
         paired: false,
@@ -1144,9 +1142,9 @@ pub async fn phone_sign_pair_start(
     label: String,
 ) -> Result<PhonePairOffer> {
     require_unlocked(&state)?;
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::pair_start(&imp::sign_dir()?, relay, enroll_secret, label).await;
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     {
         let _ = (relay, enroll_secret, label);
         Err(unavailable())
@@ -1155,24 +1153,24 @@ pub async fn phone_sign_pair_start(
 
 #[tauri::command]
 pub async fn phone_sign_pair_wait() -> Result<PhonePairCandidate> {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::pair_wait().await;
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     Err(unavailable())
 }
 
 #[tauri::command]
 pub async fn phone_sign_pair_confirm(state: State<'_, AppState>) -> Result<PhoneSignConfirmed> {
     require_unlocked(&state)?;
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::pair_confirm(&imp::sign_dir()?, running(&state)).await;
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     Err(unavailable())
 }
 
 #[tauri::command]
 pub fn phone_sign_pair_cancel() {
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     imp::pair_cancel();
 }
 
@@ -1183,9 +1181,9 @@ pub async fn phone_sign_forget(
     local_only: bool,
 ) -> Result<PhoneSignStatus> {
     require_unlocked(&state)?;
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::forget(&imp::sign_dir()?, &id, local_only, running(&state)).await;
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     {
         let _ = (id, local_only);
         Err(unavailable())
@@ -1198,9 +1196,9 @@ pub fn phone_sign_set_use_when_locked(
     enabled: bool,
 ) -> Result<PhoneSignStatus> {
     require_unlocked(&state)?;
-    #[cfg(feature = "phone-approval")]
+    #[cfg(phone_approval)]
     return imp::set_use_when_locked(&imp::sign_dir()?, enabled, running(&state));
-    #[cfg(not(feature = "phone-approval"))]
+    #[cfg(not(phone_approval))]
     {
         let _ = enabled;
         Err(unavailable())

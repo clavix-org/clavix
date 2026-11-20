@@ -107,7 +107,7 @@ Primary files:
 
 - `src-tauri/src/ssh_agent.rs`
 - `src-tauri/src/commands/ssh.rs`
-- `src-tauri/src/phone_approval.rs`, `src-tauri/src/phone_relay.rs`, `src-tauri/src/commands/phone.rs` (approving on a paired phone, `phone-approval` feature)
+- `src-tauri/src/phone_approval.rs`, `src-tauri/src/phone_relay.rs`, `src-tauri/src/commands/phone.rs` (approving on a paired phone; `phone-approval` feature, on by default, compiled on Unix only through the `phone_approval` cfg set in `src-tauri/build.rs`)
 - `src-tauri/src/phone_sign_relay.rs`, `src-tauri/src/commands/phone_sign.rs` (signing with the phone's own key while the vault is locked, same feature)
 
 Review topics:
@@ -117,6 +117,7 @@ Review topics:
 - request framing and bounds
 - signing behavior and misuse resistance
 - lock/logout cleanup
+- the open low-severity points listed in THREAT_MODEL.md, "Known limitations of the phone features"
 - phone approval: that only a verified proof becomes an approval, that a deny from either side denies, that an unreachable relay never approves, that both prompts are withdrawn on every exit path (answer, timeout, agent stop, auto-lock), and the parsing of relay responses (in `clavix-approve-core`)
 - pairing: that a phone is kept only after the user confirmed the digits, that an unconfirmed phone is revoked on the relay on every exit path (`phone::discard`, `phone_sign::discard`), that the QR code carries a `clavix-approve://` link, and that a pairing stored before pairing protocol version 2 is never used (`phone::read_stored`, `phone_sign::Options::outdated`); the digits themselves are computed in `clavix-approve-core`
 - the stored pairing: encrypted with the user key in `session.json`, dropped from memory on lock

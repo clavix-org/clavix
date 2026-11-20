@@ -1,6 +1,6 @@
 //! The phone's own key, through the Clavix Approve relay: the
 //! `ssh_agent::PhoneSigner` behind the agent Clavix runs while the vault
-//! is locked. Built only with the `phone-approval` feature.
+//! is locked. Built only with the `phone-approval` feature, on Unix.
 //!
 //! This is sign mode, the same as the standalone `clavix-agent`: the
 //! phone signs with its Secure Enclave key after Face ID, and Clavix holds

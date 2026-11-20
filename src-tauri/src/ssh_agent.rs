@@ -70,7 +70,7 @@ mod proto {
         /// mode): the agent holds only its public half and has the phone
         /// sign, after the user approved there. What the agent offers
         /// while the vault is locked — no vault key is in memory then.
-        #[cfg_attr(not(feature = "phone-approval"), allow(dead_code))]
+        #[cfg_attr(not(phone_approval), allow(dead_code))]
         Phone(Arc<dyn PhoneSigner>),
     }
 
@@ -88,7 +88,7 @@ mod proto {
         fn sign(&self, req: SignRequest) -> PhoneSignFuture;
     }
 
-    #[cfg_attr(not(feature = "phone-approval"), allow(dead_code))]
+    #[cfg_attr(not(phone_approval), allow(dead_code))]
     impl AgentKey {
         /// A phone-held key, from its SSH public key blob.
         pub fn phone(
@@ -3938,9 +3938,9 @@ mod stub {
 }
 
 pub use proto::{try_load_agent_key, ConfirmFn, HostHop, SignGuard, SignPolicy, SignRequest};
-#[cfg_attr(not(feature = "phone-approval"), allow(unused_imports))]
+#[cfg_attr(not(phone_approval), allow(unused_imports))]
 pub use proto::{AgentKey, PhoneSignFuture, PhoneSigner};
-#[cfg(all(test, feature = "phone-approval"))]
+#[cfg(all(test, phone_approval))]
 pub use proto::{CallerInfo, KeyInfo};
 
 #[cfg(not(any(unix, windows)))]

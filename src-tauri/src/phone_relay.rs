@@ -1,5 +1,5 @@
 //! The real phone: `PhoneApprover` over the Clavix Approve relay client
-//! (`clavix-approve-core`). Built only with the `phone-approval` feature.
+//! (`clavix-approve-core`). Built only with the `phone-approval` feature, on Unix.
 //!
 //! The crate does the protocol work: sealing each request for every paired
 //! device, polling the relay, checking the proof under the device's

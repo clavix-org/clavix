@@ -26,7 +26,7 @@ name = "clavix_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["update-check"]
+default = ["update-check", "phone-approval"]
 # Asks the GitHub Releases API whether a newer Clavix is out, at startup and
 # from the About dialog. Distribution packages build with
 # `--no-default-features`: their package manager delivers updates, and the
@@ -35,8 +35,10 @@ update-check = []
 # Approve SSH-agent confirmations on a paired phone, through a Clavix
 # Approve relay (src/phone_approval.rs, src/phone_relay.rs), and sign with
 # the phone's own key while the vault is locked (src/phone_sign_relay.rs,
-# src/commands/phone_sign.rs). Off by
-# default until the relay at approve.clavix.org is in service.
+# src/commands/phone_sign.rs). Nothing happens until the user pairs a
+# phone. Unix only: on other targets the feature compiles to nothing
+# (build.rs turns it into the `phone_approval` cfg the code is gated on,
+# and its two dependencies below are Unix-only).
 phone-approval = ["dep:qrcode", "dep:clavix-approve-core"]
 
 [build-dependencies]
@@ -61,12 +63,6 @@ tauri-plugin-window-state = "2"
 clavix-core = { path = "core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Clavix Approve protocol client (pairing, sealed channel, relay, proof
-# checks, sign-mode requester), pinned: it decides what counts as a phone's
-# approval or signature.
-clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "c9c3176", optional = true }
-# Pairing QR code for the phone, rendered as SVG (no network, no JS dep).
-qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 # Generates the TypeScript types the WebView consumes, straight from the
 # Rust definitions, serde attributes included. Hand-written mirrors had
 # silently drifted: `webauthn_challenge` shipped in snake_case while the
@@ -106,6 +102,17 @@ keepass = "0.17"
 # `arboard` already pulls `image` transitively, so this declaration only
 # exposes the API to us — it doesn't add a new crate to the build.
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+# The `phone-approval` feature, on the targets that have it (see
+# build.rs). `clavix-approve-core` stores its state with Unix file modes
+# and does not build elsewhere.
+[target.'cfg(unix)'.dependencies]
+# Clavix Approve protocol client (pairing, sealed channel, relay, proof
+# checks, sign-mode requester), pinned: it decides what counts as a phone's
+# approval or signature.
+clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "c9c3176", optional = true }
+# Pairing QR code for the phone, rendered as SVG (no network, no JS dep).
+qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
 
 # Desktop-session lock detection, one probe per platform (see
 # `src/screen_lock.rs`). windows-sys and core-foundation are already in

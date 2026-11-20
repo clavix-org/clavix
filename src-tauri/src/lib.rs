@@ -12,9 +12,9 @@ mod dbus;
 mod flatpak_instance;
 mod legacy_app_dirs;
 mod phone_approval;
-#[cfg(feature = "phone-approval")]
+#[cfg(phone_approval)]
 mod phone_relay;
-#[cfg(feature = "phone-approval")]
+#[cfg(phone_approval)]
 mod phone_sign_relay;
 mod screen_lock;
 // Adapts `AppState` to the engine's session slots — see the module docs.
@@ -183,7 +183,7 @@ pub fn run() {
             // way to see the session lock. See `auto_lock` for cadences.
             auto_lock::spawn(app.handle());
             // The vault starts locked: offer the phone's key meanwhile, if
-            // the user paired one for that (`phone-approval` feature).
+            // the user paired one for that (`phone-approval` feature, Unix only).
             commands::phone_sign::at_launch(app.handle());
             Ok(())
         })
