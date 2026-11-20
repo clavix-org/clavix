@@ -34,6 +34,51 @@ pub struct PhoneStatus {
     pub devices: Vec<String>,
     /// Relay of the pairing.
     pub relay: Option<String>,
+    /// The relay refused this pairing's last request for a reason the
+    /// user has to act on.
+    pub relay_refusal: Option<RelayRefusal>,
+}
+
+/// Why a hosted relay turned a request down, when it is for the user to
+/// act on. A request is where it shows: pairing costs nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+#[cfg_attr(not(phone_approval), allow(dead_code))]
+pub enum RelayRefusal {
+    /// No current subscription covers this pairing (HTTP 402).
+    SubscriptionRequired,
+    /// The subscription covers no more machines (HTTP 403).
+    MachineLimit,
+}
+
+/// The last refusal of one pairing's requests, kept so that the settings
+/// can show it: a request fails in a terminal, far from any window.
+#[cfg_attr(not(phone_approval), allow(dead_code))]
+pub(crate) struct RefusalSlot(std::sync::atomic::AtomicU8);
+
+#[cfg_attr(not(phone_approval), allow(dead_code))]
+impl RefusalSlot {
+    pub(crate) const fn new() -> Self {
+        Self(std::sync::atomic::AtomicU8::new(0))
+    }
+
+    pub(crate) fn set(&self, refusal: Option<RelayRefusal>) {
+        let value = match refusal {
+            None => 0,
+            Some(RelayRefusal::SubscriptionRequired) => 1,
+            Some(RelayRefusal::MachineLimit) => 2,
+        };
+        self.0.store(value, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub(crate) fn get(&self) -> Option<RelayRefusal> {
+        match self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            1 => Some(RelayRefusal::SubscriptionRequired),
+            2 => Some(RelayRefusal::MachineLimit),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -84,6 +129,39 @@ mod imp {
     use clavix_core::crypto::{decrypt_name, encrypt_string};
     use clavix_core::error::PhoneErrorKind;
     use clavix_core::store;
+
+    /// What the relay last refused a request of the loaded pairing for.
+    static REFUSAL: RefusalSlot = RefusalSlot::new();
+
+    /// The refusal a relay error is, if it is one the user acts on.
+    pub(crate) fn refusal_of(e: &RelayError) -> Option<RelayRefusal> {
+        match e {
+            RelayError::SubscriptionRequired => Some(RelayRefusal::SubscriptionRequired),
+            RelayError::MachineLimit => Some(RelayRefusal::MachineLimit),
+            _ => None,
+        }
+    }
+
+    /// Record how the relay took an approval request: a refusal to show
+    /// in the settings, or an answer, which clears the last one. Anything
+    /// else (unreachable, timed out) says nothing either way.
+    pub(crate) fn note_request(outcome: &std::result::Result<rq::Outcome, rq::Error>) {
+        if let Some(refusal) = request_verdict(outcome) {
+            REFUSAL.set(refusal);
+        }
+    }
+
+    /// What `note_request` records: `None` leaves the last refusal as it
+    /// is.
+    fn request_verdict(
+        outcome: &std::result::Result<rq::Outcome, rq::Error>,
+    ) -> Option<Option<RelayRefusal>> {
+        match outcome {
+            Ok(_) => Some(None),
+            Err(rq::Error::Relay(e)) => refusal_of(e).map(Some),
+            Err(_) => None,
+        }
+    }
 
     /// How long `phone_pair_wait` waits: just under the relay's 15 min.
     const PAIR_WAIT: Duration = Duration::from_secs(14 * 60);
@@ -151,6 +229,8 @@ mod imp {
     /// error types reported it.
     pub(crate) enum CallError {
         Relay(RelayError),
+        /// The relay refused to open a pairing: the enrolment secret.
+        Rejected,
         /// The relay no longer knows the pairing.
         Gone,
         /// The pairing code expired unused.
@@ -184,12 +264,8 @@ mod imp {
             match e {
                 rq::Error::Relay(e) => Self::Relay(e),
                 rq::Error::Revoked => Self::Gone,
-                // The requester folds a pairing error into text; the one
-                // that deserves its own message is recognised by the
-                // crate's own wording of it.
-                rq::Error::Invalid(reason) if reason == PairingError::Expired.to_string() => {
-                    Self::Expired
-                }
+                rq::Error::Rejected => Self::Rejected,
+                rq::Error::Expired => Self::Expired,
                 rq::Error::Invalid(reason) => Self::Other(reason),
             }
         }
@@ -199,6 +275,8 @@ mod imp {
     /// - no answer at all (DNS, connection refused, TLS, timeout): the
     ///   relay is unreachable, named by its address;
     /// - HTTP 401 or 403: the relay refused the credentials;
+    /// - the hosted relay's own refusals: no subscription, too many
+    ///   machines;
     /// - the relay no longer knows the pairing, or the code expired;
     /// - anything else: what the relay answered.
     pub(crate) fn relay_call_error(relay: &str, e: impl Into<CallError>) -> Error {
@@ -210,21 +288,17 @@ mod imp {
             CallError::Relay(e @ RelayError::Status(401 | 403)) => {
                 phone_error(PhoneErrorKind::Rejected, e)
             }
+            CallError::Relay(e @ RelayError::SubscriptionRequired) => {
+                phone_error(PhoneErrorKind::SubscriptionRequired, e)
+            }
+            CallError::Relay(e @ RelayError::MachineLimit) => {
+                phone_error(PhoneErrorKind::MachineLimit, e)
+            }
             CallError::Relay(e) => phone_error(PhoneErrorKind::Relay, e),
+            CallError::Rejected => phone_error(PhoneErrorKind::Rejected, rq::Error::Rejected),
             CallError::Gone => phone_error(PhoneErrorKind::Gone, rq::Error::Revoked),
             CallError::Expired => phone_error(PhoneErrorKind::Expired, PairingError::Expired),
             CallError::Other(reason) => phone_error(PhoneErrorKind::Relay, reason),
-        }
-    }
-
-    /// As `relay_call_error`, for a channel being created: there is no
-    /// pairing the relay could have forgotten, so a 401 (which the
-    /// requester reports as a revoked pairing) is the relay refusing the
-    /// enrolment secret.
-    fn open_error(relay: &str, e: rq::Error) -> Error {
-        match e {
-            rq::Error::Revoked => phone_error(PhoneErrorKind::Rejected, RelayError::Status(401)),
-            e => relay_call_error(relay, e),
         }
     }
 
@@ -279,6 +353,9 @@ mod imp {
         };
         *state.phone_approver.lock() = approver;
         OUTDATED.store(outdated && channel.is_some(), Ordering::SeqCst);
+        // Another pairing, or the same one read again: what was refused
+        // before shows again at the next request, if it still is.
+        REFUSAL.set(None);
         *CHANNEL.lock() = channel;
     }
 
@@ -354,6 +431,7 @@ mod imp {
                 .map(|c| c.devices.iter().map(|d| d.name().to_string()).collect())
                 .unwrap_or_default(),
             relay: channel.as_ref().map(|c| c.relay.clone()),
+            relay_refusal: channel.as_ref().and_then(|_| REFUSAL.get()),
         }
     }
 
@@ -394,7 +472,7 @@ mod imp {
             // empty for a relay with open enrolment.
             None => ApproveOffer::open(&relay, enroll_secret.trim(), label.trim())
                 .await
-                .map_err(|e| open_error(&relay, e)),
+                .map_err(|e| relay_call_error(&relay, e)),
         }?;
         let link = offer.link();
         let out = PhonePairOffer {
@@ -545,9 +623,11 @@ mod imp {
 
         #[test]
         fn what_the_relay_answered_is_a_phone_error_never_an_invalid_response() {
-            use PhoneErrorKind::{Expired, Gone, Rejected, Relay};
+            use PhoneErrorKind::{
+                Expired, Gone, MachineLimit, Rejected, Relay, SubscriptionRequired,
+            };
             let refused = || PairingError::Refused("the relay did not create the channel".into());
-            let answers: [(CallError, PhoneErrorKind); 12] = [
+            let answers: [(CallError, PhoneErrorKind); 18] = [
                 (RelayError::Status(503).into(), Relay),
                 (RelayError::Status(404).into(), Relay),
                 (RelayError::Status(429).into(), Relay),
@@ -564,8 +644,25 @@ mod imp {
                 // The stored pairing is gone from the relay.
                 (PairingError::Gone.into(), Gone),
                 (rq::Error::Revoked.into(), Gone),
-                // Typed by the pairing calls, text through the requester.
                 (rq::Error::from(PairingError::Expired).into(), Expired),
+                (rq::Error::Expired.into(), Expired),
+                // Creating a channel: the enrolment secret, not a pairing
+                // the relay forgot.
+                (rq::Error::Rejected.into(), Rejected),
+                // The hosted relay's own refusals, however they arrive.
+                (
+                    RelayError::SubscriptionRequired.into(),
+                    SubscriptionRequired,
+                ),
+                (
+                    PairingError::Relay(RelayError::SubscriptionRequired).into(),
+                    SubscriptionRequired,
+                ),
+                (RelayError::MachineLimit.into(), MachineLimit),
+                (
+                    rq::Error::Relay(RelayError::MachineLimit).into(),
+                    MachineLimit,
+                ),
             ];
             for (e, expected) in answers {
                 match relay_call_error(RELAY, e) {
@@ -582,21 +679,34 @@ mod imp {
             ));
         }
 
-        /// Creating a channel: a 401 is the enrolment secret, not a
-        /// pairing the relay forgot.
+        /// A refusal by the hosted relay is kept for the settings until a
+        /// request gets through; an unreachable relay proves nothing.
         #[test]
-        fn a_refused_enrolment_secret_is_not_a_forgotten_pairing() {
-            assert!(matches!(
-                open_error(RELAY, rq::Error::from(RelayError::Status(401))),
-                Error::Phone {
-                    kind: PhoneErrorKind::Rejected,
-                    ..
-                }
-            ));
-            assert!(matches!(
-                open_error(RELAY, RelayError::Transport("down".into()).into()),
-                Error::RelayUnreachable { .. }
-            ));
+        fn a_relay_refusal_is_kept_until_a_request_gets_through() {
+            use RelayRefusal::{MachineLimit, SubscriptionRequired};
+            let relay = |e| Err(rq::Error::Relay(e));
+            assert_eq!(
+                request_verdict(&relay(RelayError::SubscriptionRequired)),
+                Some(Some(SubscriptionRequired))
+            );
+            assert_eq!(
+                request_verdict(&relay(RelayError::MachineLimit)),
+                Some(Some(MachineLimit))
+            );
+            assert_eq!(request_verdict(&Ok(rq::Outcome::Expired)), Some(None));
+            assert_eq!(
+                request_verdict(&relay(RelayError::Transport("down".into()))),
+                None
+            );
+            assert_eq!(request_verdict(&relay(RelayError::Status(503))), None);
+            assert_eq!(request_verdict(&Err(rq::Error::Revoked)), None);
+
+            let slot = RefusalSlot::new();
+            assert_eq!(slot.get(), None);
+            for refusal in [Some(SubscriptionRequired), Some(MachineLimit), None] {
+                slot.set(refusal);
+                assert_eq!(slot.get(), refusal);
+            }
         }
 
         fn sample_channel() -> ApproveChannel {
@@ -681,7 +791,10 @@ mod imp {
 }
 
 #[cfg(phone_approval)]
-pub(crate) use imp::{no_pairing, outdated, phone_error, qr_svg, relay_call_error, relay_client};
+pub(crate) use imp::{
+    no_pairing, note_request, outdated, phone_error, qr_svg, refusal_of, relay_call_error,
+    relay_client,
+};
 
 /// Logout: revoke the approve-mode pairing on the relay, best effort. A
 /// no-op without the feature.
@@ -719,6 +832,7 @@ pub fn phone_status() -> PhoneStatus {
         outdated: false,
         devices: Vec::new(),
         relay: None,
+        relay_refusal: None,
     }
 }
 

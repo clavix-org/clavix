@@ -68,7 +68,9 @@ impl PhoneApprover for RelayPhone {
     fn approve(&self, req: ApprovalRequest) -> BoxFuture<PhoneAnswer> {
         let (_withdraw, outcome) = self.requester.request_approval(&to_crate(req));
         Box::pin(async move {
-            let answer = to_answer(outcome.await);
+            let outcome = outcome.await;
+            crate::commands::phone::note_request(&outcome);
+            let answer = to_answer(outcome);
             if let PhoneAnswer::Unavailable(reason) = &answer {
                 eprintln!("[clavix phone] no usable answer from the phone: {reason}");
             }

@@ -68,6 +68,9 @@ pub struct PhoneSignStatus {
     pub use_when_locked: bool,
     /// The locked-vault agent is running now.
     pub locked_agent_running: bool,
+    /// The relay refused this pairing's last sign request for a reason
+    /// the user has to act on.
+    pub relay_refusal: Option<super::phone::RelayRefusal>,
 }
 
 /// A pairing kept: the new phone's key, to install on servers.
@@ -176,6 +179,37 @@ pub(crate) mod imp {
         }
     }
 
+    /// What the relay last refused a sign request of this pairing for.
+    static REFUSAL: super::super::phone::RefusalSlot = super::super::phone::RefusalSlot::new();
+
+    /// Record how a sign request went: a refusal by the relay to show in
+    /// the settings (`ssh` only says "agent refused operation"), or an
+    /// answer from the phone, which clears the last one. Anything else
+    /// (unreachable relay, back-off) says nothing either way.
+    pub(crate) fn note_request<T>(
+        outcome: &std::result::Result<T, clavix_approve_core::sign_requester::SignError>,
+    ) {
+        if let Some(refusal) = request_verdict(outcome) {
+            REFUSAL.set(refusal);
+        }
+    }
+
+    /// What `note_request` records: `None` leaves the last refusal as it
+    /// is.
+    fn request_verdict<T>(
+        outcome: &std::result::Result<T, clavix_approve_core::sign_requester::SignError>,
+    ) -> Option<Option<super::super::phone::RelayRefusal>> {
+        use clavix_approve_core::sign_requester::SignError;
+        match outcome {
+            // The request reached the phone: the relay served it.
+            Ok(_) | Err(SignError::Denied | SignError::Refused(_) | SignError::Expired) => {
+                Some(None)
+            }
+            Err(SignError::Relay(e)) => super::super::phone::refusal_of(e).map(Some),
+            Err(_) => None,
+        }
+    }
+
     fn storage_error(dir: &Path, e: impl std::fmt::Display) -> Error {
         Error::Storage {
             reason: format!("phone pairing in {}: {e}", dir.display()),
@@ -186,8 +220,19 @@ pub(crate) mod imp {
         phone_error(PhoneErrorKind::NotPaired, reason)
     }
 
-    pub fn load_pairing(dir: &Path) -> Option<Pairing> {
-        core_state::load(dir).ok()
+    /// The stored pairing, `None` when there is none (or none that can be
+    /// parsed). A pairing file that other users of this machine can read
+    /// or write is an error, not an absent pairing: the crate refuses to
+    /// load it, and saying "not paired" would invite a new pairing over
+    /// secrets that may already be exposed.
+    pub fn load_pairing(dir: &Path) -> Result<Option<Pairing>> {
+        match core_state::load(dir) {
+            Ok(pairing) => Ok(Some(pairing)),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                Err(phone_error(PhoneErrorKind::Exposed, e))
+            }
+            Err(_) => Ok(None),
+        }
     }
 
     pub fn load_options(dir: &Path) -> Options {
@@ -215,6 +260,9 @@ pub(crate) mod imp {
     }
 
     fn save_pairing(dir: &Path, pairing: &Pairing) -> Result<()> {
+        // A phone added or forgotten: what the relay refused before
+        // shows again at the next request, if it still does.
+        REFUSAL.set(None);
         core_state::save(dir, pairing).map_err(|e| storage_error(dir, e))
     }
 
@@ -245,10 +293,10 @@ pub(crate) mod imp {
         key(a) == key(b)
     }
 
-    pub fn status(dir: &Path, locked_agent_running: bool) -> PhoneSignStatus {
-        let pairing = load_pairing(dir);
+    pub fn status(dir: &Path, locked_agent_running: bool) -> Result<PhoneSignStatus> {
+        let pairing = load_pairing(dir)?;
         let options = load_options(dir);
-        PhoneSignStatus {
+        Ok(PhoneSignStatus {
             available: true,
             paired: pairing.is_some(),
             outdated: pairing.is_some() && options.outdated(),
@@ -270,7 +318,8 @@ pub(crate) mod imp {
             label: pairing.as_ref().map(|p| p.label.clone()),
             use_when_locked: pairing.is_some() && options.use_when_locked,
             locked_agent_running,
-        }
+            relay_refusal: pairing.as_ref().and_then(|_| REFUSAL.get()),
+        })
     }
 
     // ---- pairing -------------------------------------------------------
@@ -295,7 +344,7 @@ pub(crate) mod imp {
         enroll_secret: String,
         label: String,
     ) -> Result<PhonePairOffer> {
-        let existing = load_pairing(dir);
+        let existing = load_pairing(dir)?;
         if existing.is_some() && load_options(dir).outdated() {
             return Err(outdated());
         }
@@ -391,7 +440,7 @@ pub(crate) mod imp {
                 // forgotten in between must not come back with it. If
                 // they were all forgotten, the channel is still the one
                 // this phone just joined, and it becomes its only device.
-                let mut existing = match load_pairing(dir) {
+                let mut existing = match load_pairing(dir)? {
                     Some(current) if current.ch == snapshot.ch => current,
                     Some(_) => return Err(no_pairing("the pairing was replaced meanwhile")),
                     None => Pairing {
@@ -447,7 +496,7 @@ pub(crate) mod imp {
             }
         };
         Ok(PhoneSignConfirmed {
-            status: status(dir, locked_agent_running),
+            status: status(dir, locked_agent_running)?,
             public_key,
             renewed,
         })
@@ -495,7 +544,7 @@ pub(crate) mod imp {
         local_only: bool,
         locked_agent_running: bool,
     ) -> Result<PhoneSignStatus> {
-        let mut pairing = load_pairing(dir).ok_or_else(|| not_paired("no phone is paired"))?;
+        let mut pairing = load_pairing(dir)?.ok_or_else(|| not_paired("no phone is paired"))?;
         let i = pairing
             .signers
             .iter()
@@ -519,7 +568,7 @@ pub(crate) mod imp {
         } else {
             save_pairing(dir, &pairing)?;
         }
-        Ok(status(dir, locked_agent_running))
+        status(dir, locked_agent_running)
     }
 
     pub fn set_use_when_locked(
@@ -527,7 +576,7 @@ pub(crate) mod imp {
         enabled: bool,
         locked_agent_running: bool,
     ) -> Result<PhoneSignStatus> {
-        if load_pairing(dir).is_none() {
+        if load_pairing(dir)?.is_none() {
             return Err(not_paired("no phone is paired"));
         }
         let options = Options {
@@ -535,7 +584,7 @@ pub(crate) mod imp {
             ..load_options(dir)
         };
         save_options(dir, options).map_err(|e| storage_error(dir, e))?;
-        Ok(status(dir, locked_agent_running))
+        status(dir, locked_agent_running)
     }
 
     // ---- the locked-vault agent ---------------------------------------
@@ -547,7 +596,13 @@ pub(crate) mod imp {
         if !options.use_when_locked {
             return None;
         }
-        let pairing = load_pairing(dir)?;
+        let pairing = match load_pairing(dir) {
+            Ok(pairing) => pairing?,
+            Err(e) => {
+                eprintln!("[clavix agent] phone pairing not used, no agent while locked: {e}");
+                return None;
+            }
+        };
         if options.outdated() {
             eprintln!(
                 "[clavix agent] the phone pairing predates the current pairing protocol, no \
@@ -570,7 +625,12 @@ pub(crate) mod imp {
     /// The files go even when the pairing cannot be read.
     pub fn remove_for_logout(dir: &Path) -> Option<Pairing> {
         pair_cancel();
-        let pairing = load_pairing(dir);
+        // An exposed pairing is removed like any other; without reading
+        // it, there is no token to revoke it on the relay with.
+        let pairing = load_pairing(dir).unwrap_or_else(|e| {
+            eprintln!("[clavix phone] the phone pairing is not revoked on the relay: {e}");
+            None
+        });
         if let Err(e) = remove_all(dir) {
             eprintln!("[clavix phone] could not remove the phone pairing at logout: {e}");
         }
@@ -741,20 +801,80 @@ pub(crate) mod imp {
             assert_eq!(mode(&dir.join("state.json")), 0o600);
             assert_eq!(mode(&dir.join(OPTIONS_FILE)), 0o600);
             assert!(!dir.join(format!("{OPTIONS_FILE}.tmp")).exists());
-            assert_eq!(load_pairing(&dir).unwrap().signers.len(), 1);
+            assert_eq!(load_pairing(&dir).unwrap().unwrap().signers.len(), 1);
             assert!(load_options(&dir).use_when_locked);
+        }
+
+        /// A pairing file other users can read is not "no pairing": it is
+        /// reported, with what to do, and nothing is done with it.
+        #[test]
+        fn a_pairing_file_open_to_other_users_is_reported_not_used() {
+            use std::os::unix::fs::PermissionsExt;
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path();
+            save_pairing(dir, &sample_state()).unwrap();
+            save_options(dir, Options::current(true)).unwrap();
+            let file = dir.join("state.json");
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+            let exposed = |r: Result<PhoneSignStatus>| match r {
+                Err(Error::Phone { kind, reason }) => {
+                    assert_eq!(kind, PhoneErrorKind::Exposed);
+                    assert!(reason.contains("chmod 600"), "{reason}");
+                    assert!(reason.contains("state.json"), "{reason}");
+                }
+                other => panic!("expected an exposed pairing, got {other:?}"),
+            };
+            exposed(status(dir, false));
+            exposed(set_use_when_locked(dir, false, false));
+            assert!(locked_agent_keys(dir).is_none(), "no agent on that file");
+
+            // Fixed by the user: used again.
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+            assert!(status(dir, false).unwrap().paired);
+            assert!(locked_agent_keys(dir).is_some());
+        }
+
+        /// `ssh` only says "agent refused operation": the reason the
+        /// hosted relay gave is kept for the settings, until a request
+        /// reaches the phone again.
+        #[test]
+        fn a_refused_sign_request_is_kept_for_the_settings() {
+            use super::super::super::phone::RelayRefusal::{MachineLimit, SubscriptionRequired};
+            use clavix_approve_core::relay::RelayError;
+            use clavix_approve_core::sign_requester::SignError;
+            let verdict = |e| request_verdict::<()>(&Err(e));
+            assert_eq!(
+                verdict(SignError::Relay(RelayError::SubscriptionRequired)),
+                Some(Some(SubscriptionRequired))
+            );
+            assert_eq!(
+                verdict(SignError::Relay(RelayError::MachineLimit)),
+                Some(Some(MachineLimit))
+            );
+            // Served by the relay, whatever the phone then said.
+            assert_eq!(request_verdict(&Ok(())), Some(None));
+            assert_eq!(verdict(SignError::Denied), Some(None));
+            assert_eq!(verdict(SignError::Expired), Some(None));
+            // Proves nothing about the subscription.
+            assert_eq!(
+                verdict(SignError::Relay(RelayError::Transport("down".into()))),
+                None
+            );
+            assert_eq!(verdict(SignError::BackingOff), None);
+            assert_eq!(verdict(SignError::Revoked), None);
         }
 
         #[test]
         fn phone_sign_status_reflects_what_is_stored() {
             let tmp = tempfile::tempdir().unwrap();
             let dir = tmp.path();
-            let empty = status(dir, false);
+            let empty = status(dir, false).unwrap();
             assert!(empty.available && !empty.paired && !empty.use_when_locked);
             assert!(empty.devices.is_empty());
 
             save_pairing(dir, &sample_state()).unwrap();
-            let paired = status(dir, true);
+            let paired = status(dir, true).unwrap();
             assert!(paired.paired && !paired.use_when_locked && paired.locked_agent_running);
             assert_eq!(paired.devices.len(), 1);
             assert_eq!(paired.devices[0].name, "iphone");
@@ -774,7 +894,7 @@ pub(crate) mod imp {
             save_pairing(dir, &sample_state()).unwrap();
             std::fs::write(dir.join(OPTIONS_FILE), br#"{"useWhenLocked":true}"#).unwrap();
 
-            let old = status(dir, false);
+            let old = status(dir, false).unwrap();
             assert!(old.paired && old.outdated && old.use_when_locked);
             assert_eq!(old.devices.len(), 1, "still listed, to be forgotten");
             assert!(locked_agent_keys(dir).is_none(), "its keys are not offered");
@@ -789,7 +909,7 @@ pub(crate) mod imp {
             assert!(set_use_when_locked(dir, false, false).unwrap().outdated);
             // No options at all (the pairing alone): version 1 too.
             std::fs::remove_file(dir.join(OPTIONS_FILE)).unwrap();
-            assert!(status(dir, false).outdated);
+            assert!(status(dir, false).unwrap().outdated);
 
             // Forgetting it works without the relay, and clears the flag.
             let id = sample_state().signers[0].id.clone();
@@ -799,7 +919,7 @@ pub(crate) mod imp {
             // A pairing made now is current.
             save_pairing(dir, &sample_state()).unwrap();
             save_options(dir, Options::current(true)).unwrap();
-            assert!(!status(dir, false).outdated);
+            assert!(!status(dir, false).unwrap().outdated);
             assert!(locked_agent_keys(dir).is_some());
             assert!(!set_use_when_locked(dir, false, false).unwrap().outdated);
         }
@@ -863,6 +983,7 @@ pub(crate) mod imp {
 
             assert!(!done.renewed);
             let ids: Vec<String> = load_pairing(dir)
+                .unwrap()
                 .unwrap()
                 .signers
                 .into_iter()
@@ -1120,7 +1241,7 @@ fn running(state: &AppState) -> bool {
 #[tauri::command]
 pub fn phone_sign_status(_state: State<'_, AppState>) -> Result<PhoneSignStatus> {
     #[cfg(phone_approval)]
-    return Ok(imp::status(&imp::sign_dir()?, running(&_state)));
+    return imp::status(&imp::sign_dir()?, running(&_state));
     #[cfg(not(phone_approval))]
     Ok(PhoneSignStatus {
         available: false,
@@ -1131,6 +1252,7 @@ pub fn phone_sign_status(_state: State<'_, AppState>) -> Result<PhoneSignStatus>
         label: None,
         use_when_locked: false,
         locked_agent_running: false,
+        relay_refusal: None,
     })
 }
 

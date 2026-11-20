@@ -220,6 +220,36 @@ mod proto {
     #[derive(Debug, Default)]
     pub struct ConnState {
         pub hops: Vec<HostHop>,
+        /// Set once the client has closed its end (`serve` watches for it
+        /// while a request is being answered).
+        pub client_gone: ClientGone,
+    }
+
+    /// "The client closed the connection", for whoever is still working
+    /// on its request. A signature nobody waits for must not stay on the
+    /// user's phone: `ssh` gave up (Ctrl-C, its own timeout), and an
+    /// approval given now would sign for nothing.
+    #[derive(Debug, Default, Clone)]
+    pub struct ClientGone(Arc<(std::sync::atomic::AtomicBool, tokio::sync::Notify)>);
+
+    impl ClientGone {
+        fn set(&self) {
+            self.0 .0.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.0 .1.notify_waiters();
+        }
+
+        /// Resolves once the client is gone (at once if it already is).
+        async fn wait(&self) {
+            // Waiter registered before the flag is read, as in
+            // `SignGuard::stopped`.
+            let notified = self.0 .1.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.0 .0.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            notified.await;
+        }
     }
 
     impl ConnState {
@@ -624,25 +654,90 @@ mod proto {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let mut conn = ConnState::default();
+        let gone = conn.client_gone.clone();
+        // What the client sent while its previous request was being
+        // answered (see below): the start of its next one.
+        let mut ahead: Vec<u8> = Vec::new();
         loop {
-            let len = match stream.read_u32().await {
-                Ok(n) => n as usize,
+            let mut header = [0u8; 4];
+            match read_buffered(&mut stream, &mut ahead, &mut header).await {
+                Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(e) => return Err(e),
-            };
+            }
+            let len = u32::from_be_bytes(header) as usize;
             if len == 0 || len > MAX_MESSAGE {
                 return Ok(());
             }
             let mut buf = vec![0u8; len];
-            stream.read_exact(&mut buf).await?;
+            read_buffered(&mut stream, &mut ahead, &mut buf).await?;
 
-            let response = process_message(&buf, &keys, &guard, caller.as_ref(), &mut conn).await;
+            // Answering can wait on the phone for a long time. Keep an eye
+            // on the socket meanwhile: a client that closes it gave up, and
+            // the request in flight is told so. Anything it sends instead
+            // (clients do not pipeline, but nothing forbids it) is kept for
+            // the next round.
+            let mut left = false;
+            let response = {
+                let work = process_message(&buf, &keys, &guard, caller.as_ref(), &mut conn);
+                tokio::pin!(work);
+                let mut chunk = [0u8; 512];
+                let mut watching = true;
+                loop {
+                    tokio::select! {
+                        biased;
+                        response = &mut work => break response,
+                        read = stream.read(&mut chunk), if watching => match read {
+                            Ok(n) if n > 0 && ahead.len() + n <= MAX_MESSAGE + 4 => {
+                                ahead.extend_from_slice(&chunk[..n]);
+                            }
+                            // Too much sent ahead: stop reading, let the
+                            // socket buffer hold the rest.
+                            Ok(n) if n > 0 => {
+                                ahead.extend_from_slice(&chunk[..n]);
+                                watching = false;
+                            }
+                            // End of stream, or a broken one.
+                            _ => {
+                                gone.set();
+                                watching = false;
+                                left = true;
+                            }
+                        },
+                    }
+                }
+            };
 
             let len_bytes = u32::to_be_bytes(response.len() as u32);
-            stream.write_all(&len_bytes).await?;
-            stream.write_all(&response).await?;
-            stream.flush().await?;
+            let written = async {
+                stream.write_all(&len_bytes).await?;
+                stream.write_all(&response).await?;
+                stream.flush().await
+            }
+            .await;
+            // A client that closed its end may still read (a half-close),
+            // so the answer is sent all the same; that it usually cannot
+            // be is not an error worth reporting.
+            if left {
+                return Ok(());
+            }
+            written?;
         }
+    }
+
+    /// `read_exact`, serving first what was already read from the stream.
+    async fn read_buffered<S>(
+        stream: &mut S,
+        ahead: &mut Vec<u8>,
+        out: &mut [u8],
+    ) -> std::io::Result<()>
+    where
+        S: AsyncRead + Unpin,
+    {
+        let taken = ahead.len().min(out.len());
+        out[..taken].copy_from_slice(&ahead[..taken]);
+        ahead.drain(..taken);
+        stream.read_exact(&mut out[taken..]).await.map(|_| ())
     }
 
     async fn handle_list(keys: &KeyStore) -> Vec<u8> {
@@ -739,7 +834,7 @@ mod proto {
         if let (Some(signer), Some(request)) = (phone, phone_request) {
             // The key-store lock is not held here: the phone can take up
             // to its timeout, and every other request must go on.
-            return phone_sign(signer.as_ref(), request).await;
+            return phone_sign(signer.as_ref(), request, &conn.client_gone).await;
         }
 
         let store = keys.lock().await;
@@ -810,7 +905,14 @@ mod proto {
     /// it verifies under the requested key. One log line per request,
     /// whatever its outcome, with how long the phone took — the figure
     /// that matters against sshd's `LoginGraceTime`.
-    async fn phone_sign(signer: &dyn PhoneSigner, request: SignRequest) -> Vec<u8> {
+    ///
+    /// A client that closes the connection meanwhile ends the wait:
+    /// dropping the signer's future withdraws the request from the phone.
+    async fn phone_sign(
+        signer: &dyn PhoneSigner,
+        request: SignRequest,
+        client_gone: &ClientGone,
+    ) -> Vec<u8> {
         use rsa::signature::Verifier;
 
         let destination = request
@@ -820,7 +922,10 @@ mod proto {
             .unwrap_or_default();
         let (key_blob, data) = (request.key_blob.clone(), request.data.clone());
         let started = std::time::Instant::now();
-        let answer = signer.sign(request).await;
+        let answer = tokio::select! {
+            answer = signer.sign(request) => answer,
+            () = client_gone.wait() => Err("the client closed the connection".to_string()),
+        };
         let waited = started.elapsed().as_secs_f32();
         let sig_blob = match answer {
             Ok(sig) => sig,
@@ -1778,6 +1883,142 @@ mod proto {
             let mut conn = ConnState::default();
             assert_eq!(bind(&mut conn, host, sid, false), vec![SSH_AGENT_SUCCESS]);
             conn
+        }
+
+        /// A phone that never answers, and says when its request is
+        /// dropped (which is what withdraws it from the relay).
+        struct SilentPhone {
+            asked: Arc<tokio::sync::Notify>,
+            dropped: Arc<std::sync::atomic::AtomicBool>,
+        }
+
+        struct OnDrop(Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for OnDrop {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        impl PhoneSigner for SilentPhone {
+            fn sign(&self, _req: SignRequest) -> PhoneSignFuture {
+                let (asked, dropped) = (self.asked.clone(), OnDrop(self.dropped.clone()));
+                Box::pin(async move {
+                    let _dropped = dropped;
+                    asked.notify_one();
+                    std::future::pending().await
+                })
+            }
+        }
+
+        async fn send<S: AsyncWrite + Unpin>(stream: &mut S, msg: &[u8]) {
+            stream.write_u32(msg.len() as u32).await.unwrap();
+            stream.write_all(msg).await.unwrap();
+        }
+
+        async fn receive<S: AsyncRead + Unpin>(stream: &mut S) -> Vec<u8> {
+            let len = stream.read_u32().await.unwrap() as usize;
+            let mut answer = vec![0u8; len];
+            stream.read_exact(&mut answer).await.unwrap();
+            answer
+        }
+
+        fn sign_msg(pub_blob: &[u8], data: &[u8]) -> Vec<u8> {
+            let mut m = vec![SSH_AGENTC_SIGN_REQUEST];
+            write_string(&mut m, pub_blob);
+            write_string(&mut m, data);
+            m.extend_from_slice(&u32::to_be_bytes(0));
+            m
+        }
+
+        /// `ssh` interrupted (Ctrl-C, its own timeout) while the phone is
+        /// asked: the request is withdrawn, instead of staying on the
+        /// phone for an approval that would sign for nobody.
+        #[tokio::test]
+        async fn a_client_that_leaves_withdraws_its_request_from_the_phone() {
+            let host = HostKey::new(4);
+            let asked = Arc::new(tokio::sync::Notify::new());
+            let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let blob = HostKey::new(21).blob();
+            let phone = SilentPhone {
+                asked: asked.clone(),
+                dropped: dropped.clone(),
+            };
+            let key = AgentKey::phone(blob.clone(), "iphone".into(), Arc::new(phone)).unwrap();
+            let keys: KeyStore = Arc::new(Mutex::new(vec![key]));
+            let guard = SignGuard::new(SignPolicy::Never, None);
+            let (mut client, server) = tokio::io::duplex(4096);
+            let served = tokio::spawn(serve(server, keys, guard, None));
+
+            let sid = b"sid-gone";
+            send(
+                &mut client,
+                &bind_msg(&host.blob(), sid, &host.sign(sid), false),
+            )
+            .await;
+            assert_eq!(receive(&mut client).await, vec![SSH_AGENT_SUCCESS]);
+            send(
+                &mut client,
+                &sign_msg(&blob, &userauth(sid, Some(&host.blob()))),
+            )
+            .await;
+            asked.notified().await;
+            assert!(!dropped.load(std::sync::atomic::Ordering::SeqCst));
+
+            drop(client);
+            // The connection ends by itself: the phone would never answer.
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), served)
+                .await
+                .expect("the request outlived its client");
+            assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+        }
+
+        /// Watching the socket during a request must not eat what the
+        /// client sends meanwhile: a second request written before the
+        /// first is answered is still answered, in order.
+        #[tokio::test]
+        async fn a_request_sent_before_the_previous_answer_is_still_served() {
+            let host = HostKey::new(4);
+            let gate = Arc::new(tokio::sync::Notify::new());
+            let mut phone = FakePhone::new(PhoneAnswer::Sign);
+            phone.gate = Some(gate.clone());
+            let (keys, blob, seen) = phone_store(phone);
+            let guard = SignGuard::new(SignPolicy::Never, None);
+            let (mut client, server) = tokio::io::duplex(4096);
+            let served = tokio::spawn(serve(server, keys, guard, None));
+
+            let sid = b"sid-two";
+            send(
+                &mut client,
+                &bind_msg(&host.blob(), sid, &host.sign(sid), false),
+            )
+            .await;
+            assert_eq!(receive(&mut client).await, vec![SSH_AGENT_SUCCESS]);
+            let data = userauth(sid, Some(&host.blob()));
+            send(&mut client, &sign_msg(&blob, &data)).await;
+            // Sent while the phone is being asked, in two pieces.
+            client.write_all(&[0, 0]).await.unwrap();
+            while seen.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+            client
+                .write_all(&[0, 1, SSH_AGENTC_REQUEST_IDENTITIES])
+                .await
+                .unwrap();
+            for _ in 0..20 {
+                tokio::task::yield_now().await;
+            }
+            gate.notify_one();
+
+            let mut expected = vec![SSH_AGENT_SIGN_RESPONSE];
+            write_string(&mut expected, &HostKey::new(21).sign(&data));
+            assert_eq!(receive(&mut client).await, expected);
+            assert_eq!(receive(&mut client).await[0], SSH_AGENT_IDENTITIES_ANSWER);
+
+            drop(client);
+            served.await.unwrap().unwrap();
         }
 
         #[test]

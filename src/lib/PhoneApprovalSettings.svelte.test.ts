@@ -16,7 +16,14 @@ vi.mock("./api", () => ({ api: apiMock }));
 
 import PhoneApprovalSettings from "./PhoneApprovalSettings.svelte";
 
-const UNPAIRED = { available: true, paired: false, outdated: false, devices: [], relay: null };
+const UNPAIRED = {
+  available: true,
+  paired: false,
+  outdated: false,
+  devices: [],
+  relay: null,
+  relayRefusal: null,
+};
 const PAIRED = {
   available: true,
   paired: true,
@@ -125,6 +132,12 @@ describe("PhoneApprovalSettings", () => {
     await flush();
     expect(apiMock.phonePairCancel).toHaveBeenCalled();
     expect(apiMock.phonePairConfirm).not.toHaveBeenCalled();
+  });
+
+  it("says what the hosted relay refused the last request for", async () => {
+    setup({ ...PAIRED, relayRefusal: "subscription_required" });
+    await flush();
+    expect(document.querySelector(".phone-approval-refusal")?.textContent).toContain("Clavix Approve");
   });
 
   it("only offers to forget a pairing made before pairing version 2", async () => {
