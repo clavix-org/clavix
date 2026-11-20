@@ -129,6 +129,11 @@ const sshString = (bytes) => {
   return Buffer.concat([length, Buffer.from(bytes)]);
 };
 
+/** A made-up server: pass the same one twice for two logins to one host. */
+export function newHost() {
+  return crypto.generateKeyPairSync("ed25519");
+}
+
 const SSH_AGENTC_SIGN_REQUEST = 13;
 const SSH_AGENTC_EXTENSION = 27;
 export const SSH_AGENT_FAILURE = 5;
@@ -141,10 +146,9 @@ export const SSH_AGENT_SIGN_RESPONSE = 14;
  * key `publicKeyLine`. The host is made up; its signature is real.
  * Resolves with the type byte of the agent's answer.
  */
-export async function agentLoginSignature(socketPath, publicKeyLine) {
+export async function agentLoginSignature(socketPath, publicKeyLine, host = newHost()) {
   const keyBlob = Buffer.from(publicKeyLine.trim().split(/\s+/)[1], "base64");
   const keyType = publicKeyLine.trim().split(/\s+/)[0];
-  const host = crypto.generateKeyPairSync("ed25519");
   const hostRaw = Buffer.from(host.publicKey.export({ format: "jwk" }).x, "base64url");
   const hostBlob = Buffer.concat([sshString("ssh-ed25519"), sshString(hostRaw)]);
   const sessionId = crypto.randomBytes(32);

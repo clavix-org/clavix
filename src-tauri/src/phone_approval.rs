@@ -194,15 +194,15 @@ impl Drop for OpenDialog<'_> {
 }
 
 /// Ask the dialog and the phone for one signature, per the rules in the
-/// module doc. Returns `true` only on an approval from either side, with
-/// no deny before it.
+/// module doc. Approved only on an approval from either side, with no
+/// deny before it; the verdict says which side.
 pub async fn race(
     req: ApprovalRequest,
     phone: Arc<dyn PhoneApprover>,
     dialog: &dyn ConfirmDialog,
     delay: Duration,
     screen_locked: LockProbe,
-) -> bool {
+) -> Verdict {
     use tokio::time::{sleep_until, Instant};
 
     let start = Instant::now();
@@ -235,13 +235,13 @@ pub async fn race(
 
     loop {
         tokio::select! {
-            _ = sleep_until(deadline) => return false,
+            _ = sleep_until(deadline) => return Verdict::Refused,
 
             approved = async { dialog_fut.as_mut().unwrap().await }, if dialog_fut.is_some() => {
                 // The dialog closed itself by answering.
                 dialog_guard.armed = false;
                 // The phone guard withdraws a pending phone request.
-                return approved;
+                return if approved { Verdict::ApprovedAtTheDesk } else { Verdict::Refused };
             }
 
             _ = sleep_until(phone_at), if phone_fut.is_none() && !phone_over => {
@@ -256,11 +256,11 @@ pub async fn race(
                 match answer {
                     PhoneAnswer::Approved => {
                         phone_guard.armed = false;
-                        return true;
+                        return Verdict::ApprovedOnThePhone;
                     }
                     PhoneAnswer::Denied(_) => {
                         phone_guard.armed = false;
-                        return false;
+                        return Verdict::Refused;
                     }
                     PhoneAnswer::Unavailable(_) => {
                         // Withdrawing is harmless if the request never
@@ -278,6 +278,21 @@ pub async fn race(
                 }
             }
         }
+    }
+}
+
+/// How a raced confirmation ended, and who allowed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    ApprovedOnThePhone,
+    ApprovedAtTheDesk,
+    /// Denied by either side, or nobody answered in time.
+    Refused,
+}
+
+impl Verdict {
+    pub fn approved(self) -> bool {
+        self != Verdict::Refused
     }
 }
 
@@ -416,7 +431,11 @@ mod tests {
         let start = Instant::now();
         let phone = FakePhone::new(PhoneAnswer::Approved, S(5));
         let dialog = FakeDialog::new(None);
-        assert!(race(req(), phone.clone(), &dialog, S(0), probe(Some(false))).await);
+        assert!(
+            race(req(), phone.clone(), &dialog, S(0), probe(Some(false)))
+                .await
+                .approved()
+        );
         assert_eq!(phone.asked_at(), Some(start));
         assert_eq!(dialog.opened_at().unwrap().0, start);
         assert!(
@@ -436,7 +455,9 @@ mod tests {
         let dialog = FakeDialog::new(Some((true, S(3))));
         let r = req();
         let id = r.id.clone();
-        assert!(race(r, phone.clone(), &dialog, S(0), probe(Some(false))).await);
+        assert!(race(r, phone.clone(), &dialog, S(0), probe(Some(false)))
+            .await
+            .approved());
         assert_eq!(phone.withdrawn(), vec![id]);
         assert!(!dialog.closed(), "a dialog that answered closed itself");
     }
@@ -446,7 +467,11 @@ mod tests {
         let start = Instant::now();
         let phone = FakePhone::new(PhoneAnswer::Approved, S(1));
         let dialog = FakeDialog::new(None);
-        assert!(race(req(), phone.clone(), &dialog, S(10), probe(Some(false))).await);
+        assert!(
+            race(req(), phone.clone(), &dialog, S(10), probe(Some(false)))
+                .await
+                .approved()
+        );
         assert_eq!(phone.asked_at(), Some(start + S(10)));
     }
 
@@ -454,7 +479,11 @@ mod tests {
     async fn answered_at_the_desk_within_the_delay_never_reaches_the_phone() {
         let phone = FakePhone::new(PhoneAnswer::Approved, S(1));
         let dialog = FakeDialog::new(Some((true, S(4))));
-        assert!(race(req(), phone.clone(), &dialog, S(10), probe(Some(false))).await);
+        assert!(
+            race(req(), phone.clone(), &dialog, S(10), probe(Some(false)))
+                .await
+                .approved()
+        );
         assert_eq!(phone.asked_at(), None);
         assert!(phone.withdrawn().is_empty());
     }
@@ -463,12 +492,16 @@ mod tests {
     async fn a_deny_on_either_side_denies() {
         let phone = FakePhone::new(PhoneAnswer::Denied("user".into()), S(2));
         let dialog = FakeDialog::new(Some((true, S(30))));
-        assert!(!race(req(), phone, &dialog, S(0), probe(Some(false))).await);
+        assert!(!race(req(), phone, &dialog, S(0), probe(Some(false)))
+            .await
+            .approved());
         assert!(dialog.closed());
 
         let phone = FakePhone::new(PhoneAnswer::Approved, S(30));
         let dialog = FakeDialog::new(Some((false, S(2))));
-        assert!(!race(req(), phone, &dialog, S(0), probe(Some(false))).await);
+        assert!(!race(req(), phone, &dialog, S(0), probe(Some(false)))
+            .await
+            .approved());
     }
 
     #[tokio::test(start_paused = true)]
@@ -476,7 +509,11 @@ mod tests {
         let start = Instant::now();
         let phone = FakePhone::new(PhoneAnswer::Approved, S(15));
         let dialog = FakeDialog::new(None);
-        assert!(race(req(), phone.clone(), &dialog, S(30), probe(Some(true))).await);
+        assert!(
+            race(req(), phone.clone(), &dialog, S(30), probe(Some(true)))
+                .await
+                .approved()
+        );
         assert_eq!(
             phone.asked_at(),
             Some(start),
@@ -504,7 +541,7 @@ mod tests {
             }
         };
         let (approved, ()) = tokio::join!(race(req(), phone.clone(), &dialog, S(0), probe), unlock);
-        assert!(approved);
+        assert!(approved.approved());
         let (opened, timeout) = dialog.opened_at().unwrap();
         assert!(opened >= start + S(9) && opened <= start + S(11));
         assert_eq!(
@@ -520,13 +557,17 @@ mod tests {
         // Locked: the dialog comes up as soon as the phone gives up.
         let phone = FakePhone::new(PhoneAnswer::Unavailable("relay down".into()), S(1));
         let dialog = FakeDialog::new(Some((true, S(2))));
-        assert!(race(req(), phone, &dialog, S(0), probe(Some(true))).await);
+        assert!(race(req(), phone, &dialog, S(0), probe(Some(true)))
+            .await
+            .approved());
         assert!(dialog.opened_at().is_some());
 
         // Unlocked: the dialog's answer still decides.
         let phone = FakePhone::new(PhoneAnswer::Unavailable("relay down".into()), S(1));
         let dialog = FakeDialog::new(Some((false, S(5))));
-        assert!(!race(req(), phone, &dialog, S(0), probe(Some(false))).await);
+        assert!(!race(req(), phone, &dialog, S(0), probe(Some(false)))
+            .await
+            .approved());
     }
 
     #[tokio::test(start_paused = true)]
@@ -534,7 +575,11 @@ mod tests {
         let start = Instant::now();
         let phone = FakePhone::new(PhoneAnswer::Approved, S(500));
         let dialog = FakeDialog::new(None);
-        assert!(!race(req(), phone.clone(), &dialog, S(0), probe(Some(false))).await);
+        assert!(
+            !race(req(), phone.clone(), &dialog, S(0), probe(Some(false)))
+                .await
+                .approved()
+        );
         assert_eq!(Instant::now() - start, PHONE_TIMEOUT);
         assert_eq!(phone.withdrawn().len(), 1);
         assert!(dialog.closed() || dialog.opened_at().unwrap().1 == PHONE_TIMEOUT);
@@ -557,7 +602,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn no_phone_is_the_dialog_alone() {
         let dialog = FakeDialog::new(Some((true, S(2))));
-        assert!(race(req(), Arc::new(NoPhone), &dialog, S(0), probe(Some(true))).await);
+        assert!(
+            race(req(), Arc::new(NoPhone), &dialog, S(0), probe(Some(true)))
+                .await
+                .approved()
+        );
     }
 
     #[test]
