@@ -24,6 +24,7 @@ use crate::commands::phone::RelayRefusal;
 
 /// Asks the front end to open the SSH settings (now, or once the vault is
 /// unlocked).
+#[cfg(target_os = "linux")]
 pub const EVENT_OPEN_SSH_SETTINGS: &str = "clavix:open-ssh-settings";
 
 /// How long the same refusal stays quiet after a notification.
