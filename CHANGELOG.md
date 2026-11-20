@@ -5,6 +5,18 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0](https://github.com/clavix-org/clavix/compare/v0.34.0...v0.35.0) (2026-11-20)
+
+
+### Features
+
+* **phone:** build the phone features into Linux and macOS releases ([#525](https://github.com/clavix-org/clavix/issues/525)) ([57d3d52](https://github.com/clavix-org/clavix/commit/57d3d524295ff8c62aea7a35e357a24bc1904560))
+* **phone:** notify when the hosted relay refuses a phone request ([#528](https://github.com/clavix-org/clavix/issues/528)) ([6791a21](https://github.com/clavix-org/clavix/commit/6791a21e7e0f01ea06626c22b4be914df5a7676d))
+* **phone:** pair with Clavix Approve pairing protocol version 2 ([#524](https://github.com/clavix-org/clavix/issues/524)) ([5c34251](https://github.com/clavix-org/clavix/commit/5c342517f6fc7024f39e0128856a87db78f70753))
+* **phone:** phone-only mode, the backend ([#529](https://github.com/clavix-org/clavix/issues/529)) ([f8043ba](https://github.com/clavix-org/clavix/commit/f8043ba6579f28e217248c593053293d88391524))
+* **phone:** phone-only mode, the screens and an end-to-end test ([#531](https://github.com/clavix-org/clavix/issues/531)) ([3e3d07d](https://github.com/clavix-org/clavix/commit/3e3d07dfbc93d2640b382e3adee00b8fc3fa8d30))
+* **phone:** take the core's audit fixes and say what the relay refused ([#527](https://github.com/clavix-org/clavix/issues/527)) ([0e79c90](https://github.com/clavix-org/clavix/commit/0e79c902a9148b1c5c93496a5724302cea669909))
+
 ## [0.34.0](https://github.com/clavix-org/clavix/compare/v0.33.3...v0.34.0) (2026-11-19)
 
 
