@@ -23,6 +23,7 @@ flatpak-build/
 
 # ---- Tests E2E (sandbox XDG_DATA_HOME + screenshots sur échec) ----
 tests/e2e/sandbox/
+tests/e2e/.approve/
 tests/e2e/screenshots/
 
 # ---- Éditeurs & OS ----

@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -33,6 +33,23 @@ const sandboxDataHome = resolve(here, "sandbox");
 // window geometry under XDG_CONFIG_HOME. Nested in the data sandbox so
 // the reset below wipes both.
 const sandboxConfigHome = resolve(sandboxDataHome, "config");
+// And for the runtime directory, where the SSH agent binds its socket
+// (`$XDG_RUNTIME_DIR/clavix/agent.sock`): without this, a spec that
+// starts an agent would take the socket of the Clavix the developer is
+// running. Outside the data sandbox, under the system's temporary
+// directory: a Unix socket path holds about a hundred bytes, which a
+// deep checkout would exceed.
+const sandboxRuntimeDir = resolve(tmpdir(), `clavix-e2e-run-${userInfo().uid}`);
+// The session bus is found through the runtime directory when no address
+// is given: keep pointing at the real one, so that what talks to the
+// desktop (the screen-lock probe) behaves as before.
+const sessionBus = process.env.XDG_RUNTIME_DIR
+  ? resolve(process.env.XDG_RUNTIME_DIR, "bus")
+  : null;
+const busEnv =
+  !process.env.DBUS_SESSION_BUS_ADDRESS && sessionBus && existsSync(sessionBus)
+    ? { DBUS_SESSION_BUS_ADDRESS: `unix:path=${sessionBus}` }
+    : {};
 
 function run(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, { stdio: "inherit", ...opts });
@@ -216,6 +233,8 @@ export const config = {
 
     rmSync(sandboxDataHome, { recursive: true, force: true });
     mkdirSync(sandboxDataHome, { recursive: true });
+    rmSync(sandboxRuntimeDir, { recursive: true, force: true });
+    mkdirSync(sandboxRuntimeDir, { recursive: true, mode: 0o700 });
 
     // Spin up tauri-driver per session; it in turn spawns
     // WebKitWebDriver on 127.0.0.1:4445. Forcing the host to
@@ -234,6 +253,8 @@ export const config = {
           WEBKIT_DISABLE_COMPOSITING_MODE: "1",
           XDG_DATA_HOME: sandboxDataHome,
           XDG_CONFIG_HOME: sandboxConfigHome,
+          XDG_RUNTIME_DIR: sandboxRuntimeDir,
+          ...busEnv,
           // The app takes a single-instance lock (lib.rs) keyed on the
           // bundle identifier, which is shared by debug and release
           // builds. Without this opt-out, a Clavix sitting in the

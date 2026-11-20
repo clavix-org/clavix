@@ -116,6 +116,15 @@ Against a real Vaultwarden instance, Clavix:
   go through a relay (`https://approve.clavix.org` by default, or your
   own) that only sees sealed messages. See
   [THREAT_MODEL.md](THREAT_MODEL.md) for what this changes.
+- on Linux and macOS, also works with **no vault at all** ("phone
+  only"): no server, no account, no master password. Choose it at first
+  launch, scan the QR code with Clavix Approve, and Clavix is the SSH
+  agent of your phone: the key stays on the iPhone and every login is
+  confirmed there with Face ID. The screen shows the public key to put
+  on your servers and the line that points `ssh` at the agent
+  (`SSH_AUTH_SOCK`, or `IdentityAgent` in `~/.ssh/config`). A vault can
+  be added later without pairing again. Not in the Windows build nor in
+  the Flatpak.
 
 The master password never hits the server nor the disk: only derived
 values are exchanged (master password hash for authentication, master

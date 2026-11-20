@@ -93,6 +93,20 @@ UI tests.
 | `bulk-selection.spec.mjs` | Ctrl-click selection → bulk trash through the confirmation; a plain click drops the selection |
 | `attachments.spec.mjs`   | Pick a file → upload → download → byte-for-byte compare; delete after confirmation |
 | `reprompt.spec.mjs`      | Wrong master password reveals nothing; dismissal reveals nothing; the row menu is gated too |
+| `phone-only.spec.mjs`    | No vault: choose "phone only", pair a stand-in phone, sign a login through the agent; restart, and the agent is back with nothing to unlock |
+
+`phone-only.spec.mjs` needs no Vaultwarden. It starts the reference
+relay and the stand-in phone of the
+[clavix-approve](https://github.com/clavix-org/clavix-approve)
+repository, at the revision `src-tauri/Cargo.toml` pins, taken from
+cargo's git cache or cloned once into `tests/e2e/.approve/`
+(`helpers/approve.mjs`). The relay needs Python 3 with the
+`cryptography` package (`python3-cryptography` on Debian and Ubuntu).
+
+The app under test gets its own runtime directory
+(`$TMPDIR/clavix-e2e-run-<uid>`) besides its data and configuration
+sandbox: the SSH agent binds its socket there, not over the socket of
+a Clavix you may be running.
 
 Two env vars to iterate locally without recycling Docker each run:
 
