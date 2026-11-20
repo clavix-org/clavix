@@ -19,6 +19,7 @@ import type {
   PhonePairCandidate,
   PhonePairOffer,
   PhoneStatus,
+  RelayHealth,
   SessionOrigin,
   SshAgentStatus,
   StoredAccount,
@@ -274,6 +275,7 @@ export const api = {
   phonePairCancel: () => invoke<void>("phone_pair_cancel"),
   phoneForget: () => invoke<PhoneStatus>("phone_forget"),
   phoneSignStatus: () => invoke<PhoneSignStatus>("phone_sign_status"),
+  phoneRelayHealth: () => invoke<RelayHealth[]>("phone_relay_health"),
   phoneSignPairStart: (relay: string, enrollSecret: string, label: string) =>
     invoke<PhonePairOffer>("phone_sign_pair_start", { relay, enrollSecret, label }),
   phoneSignPairWait: () => invoke<PhonePairCandidate>("phone_sign_pair_wait"),

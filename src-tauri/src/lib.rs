@@ -256,6 +256,7 @@ pub fn run() {
             commands::phone::phone_pair_cancel,
             commands::phone::phone_forget,
             commands::phone_sign::phone_sign_status,
+            commands::relay_health::phone_relay_health,
             commands::phone_sign::phone_sign_pair_start,
             commands::phone_sign::phone_sign_pair_wait,
             commands::phone_sign::phone_sign_pair_confirm,

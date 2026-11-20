@@ -84,6 +84,7 @@ export type { PhoneStatus } from "./generated/PhoneStatus";
 export type { PhonePairOffer } from "./generated/PhonePairOffer";
 export type { PhonePairCandidate } from "./generated/PhonePairCandidate";
 export type { PhoneSignStatus } from "./generated/PhoneSignStatus";
+export type { RelayHealth } from "./generated/RelayHealth";
 export type { PhoneSignDevice } from "./generated/PhoneSignDevice";
 export type { PhoneSignConfirmed } from "./generated/PhoneSignConfirmed";
 export type { AppMode } from "./generated/AppMode";

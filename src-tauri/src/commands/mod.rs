@@ -8,6 +8,7 @@ pub mod import;
 pub mod move_share;
 pub mod phone;
 pub mod phone_sign;
+pub mod relay_health;
 pub mod ssh;
 pub mod standalone;
 pub mod strength;
