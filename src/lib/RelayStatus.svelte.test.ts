@@ -73,4 +73,27 @@ describe("RelayStatus", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(apiMock.phoneRelayHealth).toHaveBeenCalledTimes(2);
   });
+
+  it("probes again at once when the pairing changes", async () => {
+    apiMock.phoneRelayHealth.mockResolvedValue([]);
+    const { rerender, queryByTestId } = render(RelayStatus, { refresh: null });
+    await flush();
+    expect(queryByTestId("relay-status")).toBeNull();
+    apiMock.phoneRelayHealth.mockResolvedValue([{ relay: RELAY, reachable: true, refusal: null }]);
+    await rerender({ refresh: RELAY });
+    await flush();
+    expect(apiMock.phoneRelayHealth).toHaveBeenCalledTimes(2);
+    expect(queryByTestId("relay-status")?.querySelector(".dot--ok")).not.toBeNull();
+  });
+
+  it("draws the divider only when asked", async () => {
+    apiMock.phoneRelayHealth.mockResolvedValue([{ relay: RELAY, reachable: true, refusal: null }]);
+    const plain = render(RelayStatus);
+    await flush();
+    expect(plain.container.querySelector(".sep")).toBeNull();
+    cleanup();
+    const withSep = render(RelayStatus, { separator: true });
+    await flush();
+    expect(withSep.container.querySelector(".sep")).not.toBeNull();
+  });
 });

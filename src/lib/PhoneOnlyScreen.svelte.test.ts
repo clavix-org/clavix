@@ -4,6 +4,7 @@ import { render, cleanup, fireEvent } from "@testing-library/svelte";
 import { tick } from "svelte";
 
 const apiMock = vi.hoisted(() => ({
+  phoneRelayHealth: vi.fn().mockResolvedValue([]),
   phoneSignStatus: vi.fn(),
   phoneSignPairCancel: vi.fn().mockResolvedValue(undefined),
   autostartEnabled: vi.fn().mockResolvedValue(true),

@@ -10,15 +10,31 @@
   // while no phone is paired.
   const EVERY_MS = 60_000;
 
+  type Props = {
+    /** A divider after the indicator, before what follows it (toolbar). */
+    separator?: boolean;
+    /** Probe again whenever this changes (a phone paired or forgotten),
+        rather than at the next minute. */
+    refresh?: unknown;
+  };
+  let { separator = false, refresh }: Props = $props();
+
   type Kind = "ok" | "refused" | "unreachable";
 
   let health = $state<RelayHealth[]>([]);
   let inFlight = false;
+  // A probe asked for while one runs (a phone just paired) runs after it
+  // instead of being dropped.
+  let again = false;
 
   async function probe() {
     // A window hidden in the tray needs no indicator; it probes again
     // when shown.
-    if (inFlight || document.hidden) return;
+    if (document.hidden) return;
+    if (inFlight) {
+      again = true;
+      return;
+    }
     inFlight = true;
     try {
       health = await api.phoneRelayHealth();
@@ -27,6 +43,10 @@
     } finally {
       inFlight = false;
     }
+    if (again) {
+      again = false;
+      void probe();
+    }
   }
 
   const onVisibility = () => {
@@ -34,8 +54,12 @@
   };
 
   let timer: ReturnType<typeof setInterval> | undefined;
+  $effect(() => {
+    void refresh;
+    untrack(() => void probe());
+  });
+
   onMount(() => {
-    void probe();
     timer = setInterval(() => void probe(), EVERY_MS);
     document.addEventListener("visibilitychange", onVisibility);
   });
@@ -99,7 +123,9 @@
     <span class="label" aria-hidden="true">{label}</span>
     <span class="visually-hidden" aria-live="polite">{announced}</span>
   </div>
-  <span class="sep" aria-hidden="true"></span>
+  {#if separator}
+    <span class="sep" aria-hidden="true"></span>
+  {/if}
 {/if}
 
 <style>
