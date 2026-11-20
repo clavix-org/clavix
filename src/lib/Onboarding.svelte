@@ -4,7 +4,9 @@
 
   const DISCLAIMER_URL = "https://github.com/clavix-org/clavix/blob/master/DISCLAIMER.md";
 
-  let { onComplete }: { onComplete: () => void } = $props();
+  // `onPhoneOnly`: offered on builds that can run with no vault, as the
+  // agent of a paired phone. Absent, the screen has its single button.
+  let { onComplete, onPhoneOnly }: { onComplete: () => void; onPhoneOnly?: () => void } = $props();
 
   async function openDisclaimer() {
     try {
@@ -31,11 +33,24 @@
       {m.onboarding_read_disclaimer()}
     </button>
   </div>
-  <div class="row">
-    <button type="button" onclick={onComplete}>
-      {m.onboarding_continue()}
-    </button>
-  </div>
+  {#if onPhoneOnly}
+    <h3>{m.onboarding_choose_title()}</h3>
+    <div class="choices">
+      <button type="button" class="choice-vault" onclick={onComplete}>
+        {m.onboarding_choose_vault()}
+      </button>
+      <button type="button" class="secondary choice-phone" onclick={onPhoneOnly}>
+        {m.onboarding_choose_phone()}
+      </button>
+    </div>
+    <p class="choice-hint">{m.onboarding_choose_phone_hint()}</p>
+  {:else}
+    <div class="row">
+      <button type="button" onclick={onComplete}>
+        {m.onboarding_continue()}
+      </button>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -100,6 +115,19 @@
   .callout button {
     padding: 0.35rem 0.7rem;
     font-size: 0.85rem;
+  }
+
+  .choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .choice-hint {
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
   }
 
   .row {

@@ -324,8 +324,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # python3-cryptography: the reference relay the phone-only spec
+      # starts (tests/e2e/helpers/approve.mjs).
       - name: Install Tauri + WebDriver system dependencies
-        run: .github/scripts/install-linux-deps.sh webkit2gtk-driver xvfb
+        run: .github/scripts/install-linux-deps.sh webkit2gtk-driver xvfb python3-cryptography
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

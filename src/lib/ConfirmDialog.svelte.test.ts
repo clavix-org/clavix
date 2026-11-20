@@ -41,12 +41,53 @@ function buttons() {
 
 function mount() {
   const { component } = render(ConfirmDialog) as unknown as {
-    component: { ask: (r: ConfirmRequest) => Promise<boolean> };
+    component: { ask: (r: ConfirmRequest) => Promise<boolean>; optionChosen: () => boolean };
   };
   return component;
 }
 
 describe("ConfirmDialog", () => {
+  it("offers an unticked option and reports it only for a confirmed request", async () => {
+    const dialog = mount();
+    const withOption = { ...REQUEST, option: { label: "Garder le téléphone" } };
+    const box = () => document.querySelector<HTMLInputElement>("dialog .confirm-option input");
+
+    // Not offered unless asked for.
+    void dialog.ask(REQUEST);
+    await flush();
+    expect(box()).toBeNull();
+    buttons().confirm.click();
+    expect(dialog.optionChosen()).toBe(false);
+
+    // Unticked by default: confirming without touching it changes nothing.
+    let answer = dialog.ask(withOption);
+    await flush();
+    expect(box()?.checked).toBe(false);
+    expect(document.querySelector(".confirm-option")?.textContent).toContain("Garder le téléphone");
+    buttons().confirm.click();
+    expect(await answer).toBe(true);
+    expect(dialog.optionChosen()).toBe(false);
+
+    // Ticked, then cancelled: the option does not count.
+    answer = dialog.ask(withOption);
+    await flush();
+    box()!.click();
+    await flush();
+    buttons().cancel.click();
+    expect(await answer).toBe(false);
+    expect(dialog.optionChosen()).toBe(false);
+
+    // Ticked and confirmed; and the next request starts unticked.
+    answer = dialog.ask(withOption);
+    await flush();
+    expect(box()?.checked).toBe(false);
+    box()!.click();
+    await flush();
+    buttons().confirm.click();
+    expect(await answer).toBe(true);
+    expect(dialog.optionChosen()).toBe(true);
+  });
+
   it("opens with focus on Annuler so a stray Entrée cannot delete", async () => {
     const dialog = mount();
     void dialog.ask(REQUEST);

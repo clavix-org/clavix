@@ -9,6 +9,8 @@ export type Phase =
   | "authenticating"
   | "twoFactor"
   | "unlock"
+  // No vault on this machine: only the agent of a paired phone.
+  | "phoneOnly"
   | "loggedIn"
   | "error";
 
@@ -23,6 +25,8 @@ export type ConfirmRequest = {
   confirmLabel: string;
   /** Paints the confirm button red. Set it for anything that destroys data. */
   danger?: boolean;
+  /** One unchecked box under the body; read its answer with `optionChosen()`. */
+  option?: { label: string };
 };
 
 /** What a page passes down so a child can raise a confirmation. */

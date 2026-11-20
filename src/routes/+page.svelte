@@ -71,7 +71,7 @@
   // was locked: the SSH settings open once it is unlocked.
   let sshSettingsWanted = false;
   let generatorDialog = $state<{ open: () => void } | null>(null);
-  let confirmDialog = $state<{ ask: ConfirmFn } | null>(null);
+  let confirmDialog = $state<{ ask: ConfirmFn; optionChosen: () => boolean } | null>(null);
   let repromptDialog = $state<{ ask: (name: string) => Promise<boolean> } | null>(null);
   let importOpen = $state(false);
   let exportOpen = $state(false);
@@ -580,8 +580,8 @@
     unlockedItems = new Set();
   }
 
-  async function switchAccountAndReset() {
-    await auth.switchAccount();
+  async function switchAccountAndReset(keepPhone = false) {
+    await auth.switchAccount(keepPhone);
     vault.reset();
     clearSelection();
     unlockedItems = new Set();
@@ -590,13 +590,22 @@
   // Lock keeps the account and asks only for the master password again;
   // signing out forgets the server, the email and the cache, and sits one
   // button away from Lock in the toolbar.
+  //
+  // Signing out also ends the pairing of a phone that signs while the
+  // vault is locked, unless the user ticks the box: the phone is then
+  // kept and Clavix goes on with no vault, as its agent only.
   async function confirmSignOut() {
+    const paired = await api
+      .phoneSignStatus()
+      .then((s) => s.available && s.paired)
+      .catch(() => false);
     const ok = await confirm({
       title: m.logout_confirm_title(),
       body: m.logout_confirm_body(),
       confirmLabel: m.action_logout(),
+      option: paired ? { label: m.logout_keep_phone() } : undefined,
     });
-    if (ok) await switchAccountAndReset();
+    if (ok) await switchAccountAndReset(paired && (confirmDialog?.optionChosen() ?? false));
   }
 
   function onSplitterMouseDown(event: MouseEvent) {
@@ -846,7 +855,8 @@
     // window was raised on the unlock form and the settings follow.
     unlistenOpenSshSettings = await listen("clavix:open-ssh-settings", () => {
       if (auth.phase === "loggedIn") void preferencesDialog?.open("ssh");
-      else sshSettingsWanted = true;
+      // With no vault the screen raised is already the phone's.
+      else if (auth.phase !== "phoneOnly") sshSettingsWanted = true;
     });
     // Fire-and-forget: a failed update check must never disrupt startup, so we
     // swallow errors (offline, rate-limited, GitHub down) and simply show no

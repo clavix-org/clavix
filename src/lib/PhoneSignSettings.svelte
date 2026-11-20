@@ -11,7 +11,17 @@
   import { DEFAULT_PHONE_RELAY } from "./phone";
   import type { PhonePairCandidate, PhonePairOffer, PhoneSignStatus } from "./types";
 
+  // `phoneOnly`: the same block as the whole screen of a setup with no
+  // vault (`PhoneOnlyScreen`). There the "while locked" switch does not
+  // exist, the relay is an advanced setting and the form is the first
+  // thing shown. `onStatus` hands each status read to the parent.
+  type Props = { phoneOnly?: boolean; onStatus?: (status: PhoneSignStatus) => void };
+  let { phoneOnly = false, onStatus }: Props = $props();
+
   let status = $state<PhoneSignStatus | null>(null);
+  $effect(() => {
+    if (status) onStatus?.(status);
+  });
   let busy = $state(false);
   let error = $state<string | null>(null);
 
@@ -19,7 +29,8 @@
   let pairing = $state(false);
   let relay = $state(DEFAULT_PHONE_RELAY);
   let enrollSecret = $state("");
-  let label = $state("");
+  // svelte-ignore state_referenced_locally
+  let label = $state(phoneOnly ? m.phone_only_default_label() : "");
   let offer = $state<PhonePairOffer | null>(null);
   let candidate = $state<PhonePairCandidate | null>(null);
 
@@ -133,9 +144,9 @@
 </script>
 
 {#if status?.available}
-  <section class="phone-sign" aria-labelledby="phone-sign-title">
-    <h3 id="phone-sign-title">{m.phone_sign_title()}</h3>
-    <p class="hint">{m.phone_sign_intro()}</p>
+  <section class="phone-sign" class:phone-sign-alone={phoneOnly} aria-labelledby="phone-sign-title">
+    <h3 id="phone-sign-title">{phoneOnly ? m.phone_only_title() : m.phone_sign_title()}</h3>
+    <p class="hint">{phoneOnly ? m.phone_only_intro() : m.phone_sign_intro()}</p>
 
     {#if status.paired}
       <dl class="phone-approval-setting">
@@ -197,7 +208,7 @@
           {/if}
           <p class="hint">{m.phone_sign_forget_hint()}</p>
         </dd>
-        {#if !status.outdated}
+        {#if !status.outdated && !phoneOnly}
         <dt>{m.phone_sign_when_locked()}</dt>
         <dd>
           <label class="ssh-agent-autostart">
@@ -223,6 +234,7 @@
         {:else}
           <p>{m.phone_sign_pubkey_title()}</p>
           <code class="phone-sign-pubkey">{newKey}</code>
+          <p class="hint phone-sign-pubkey-hint">{m.phone_sign_pubkey_hint()}</p>
           <div class="phone-approval-actions">
             <button type="button" class="secondary" onclick={() => copy(newKey!)}>
               {copied === newKey ? m.phone_sign_copied() : m.phone_sign_copy()}
@@ -261,7 +273,7 @@
           </div>
         {/if}
       </div>
-    {:else if pairing && !status.paired}
+    {:else if (pairing || phoneOnly) && !status.paired}
       <form
         class="phone-sign-form"
         onsubmit={(e) => {
@@ -269,15 +281,25 @@
           startPairing();
         }}
       >
-        <label>
-          {m.phone_approval_relay()}
-          <input type="url" bind:value={relay} required disabled={busy} />
-        </label>
-        <label>
-          {m.phone_approval_enroll_secret()}
-          <PasswordInput bind:value={enrollSecret} autocomplete="off" disabled={busy} />
-          <span class="hint">{m.phone_approval_enroll_secret_hint()}</span>
-        </label>
+        {#snippet relayFields()}
+          <label>
+            {m.phone_approval_relay()}
+            <input type="url" bind:value={relay} required disabled={busy} />
+          </label>
+          <label>
+            {m.phone_approval_enroll_secret()}
+            <PasswordInput bind:value={enrollSecret} autocomplete="off" disabled={busy} />
+            <span class="hint">{m.phone_approval_enroll_secret_hint()}</span>
+          </label>
+        {/snippet}
+        {#if phoneOnly}
+          <details class="phone-sign-relay">
+            <summary>{m.phone_only_relay_advanced()}</summary>
+            {@render relayFields()}
+          </details>
+        {:else}
+          {@render relayFields()}
+        {/if}
         <label>
           {m.phone_approval_label()}
           <input
@@ -290,9 +312,11 @@
           />
         </label>
         <div class="phone-approval-actions">
-          <button type="button" class="secondary" onclick={cancelPairing} disabled={busy}>
-            {m.phone_approval_cancel()}
-          </button>
+          {#if !phoneOnly}
+            <button type="button" class="secondary" onclick={cancelPairing} disabled={busy}>
+              {m.phone_approval_cancel()}
+            </button>
+          {/if}
           <button type="submit" disabled={busy}>{m.phone_approval_show_code()}</button>
         </div>
       </form>
@@ -312,7 +336,7 @@
       </div>
     {/if}
 
-    <p class="hint">{m.phone_sign_storage()}</p>
+    <p class="hint">{phoneOnly ? m.phone_only_storage() : m.phone_sign_storage()}</p>
 
     {#if error}
       <p class="audit-error">{error}</p>
@@ -335,6 +359,12 @@
     margin-top: 1.25rem;
     border-top: 1px solid var(--border);
     padding-top: 0.75rem;
+  }
+  /* The whole screen in phone-only mode: nothing above to separate from. */
+  .phone-sign-alone {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 0;
   }
   .phone-sign h3 {
     margin: 0 0 0.25rem;
