@@ -5,6 +5,13 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.1](https://github.com/clavix-org/clavix/compare/v0.35.0...v0.35.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **ssh:** remember a phone-era approval for its server only ([#532](https://github.com/clavix-org/clavix/issues/532)) ([599498a](https://github.com/clavix-org/clavix/commit/599498a69d52ffcadf4cdb39c7be2241a180a1b4))
+
 ## [0.35.0](https://github.com/clavix-org/clavix/compare/v0.34.0...v0.35.0) (2026-11-20)
 
 
