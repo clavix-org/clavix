@@ -5,6 +5,18 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0](https://github.com/clavix-org/clavix/compare/v0.35.1...v0.36.0) (2026-11-20)
+
+
+### Features
+
+* **phone:** show the relay's state in the toolbar ([#534](https://github.com/clavix-org/clavix/issues/534)) ([78714dc](https://github.com/clavix-org/clavix/commit/78714dc688744f1b9e6d5e2bea58396692b34ff5))
+
+
+### Bug Fixes
+
+* **phone:** line the sign-mode phones up with the rest of their block ([#535](https://github.com/clavix-org/clavix/issues/535)) ([03ad708](https://github.com/clavix-org/clavix/commit/03ad7088e4cf7b7a8eed9f67c52cd4d02b6969f5))
+
 ## [0.35.1](https://github.com/clavix-org/clavix/compare/v0.35.0...v0.35.1) (2026-11-20)
 
 
