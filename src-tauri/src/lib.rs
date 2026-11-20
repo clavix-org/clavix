@@ -16,6 +16,8 @@ mod phone_approval;
 mod phone_relay;
 #[cfg(phone_approval)]
 mod phone_sign_relay;
+#[cfg(phone_approval)]
+mod relay_notice;
 mod screen_lock;
 // Adapts `AppState` to the engine's session slots — see the module docs.
 pub mod session;
@@ -184,6 +186,8 @@ pub fn run() {
             auto_lock::spawn(app.handle());
             // The vault starts locked: offer the phone's key meanwhile, if
             // the user paired one for that (`phone-approval` feature, Unix only).
+            #[cfg(phone_approval)]
+            relay_notice::init(app.handle());
             commands::phone_sign::at_launch(app.handle());
             Ok(())
         })

@@ -308,6 +308,8 @@ fn build_menu(app: &AppHandle, locale: &str) -> tauri::Result<Menu<tauri::Wry>> 
 /// tray on this WM, build_tray skipped earlier) just no-ops.
 #[tauri::command]
 pub fn set_tray_locale(app: AppHandle, locale: String) -> Result<()> {
+    #[cfg(phone_approval)]
+    crate::relay_notice::set_locale(&locale);
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return Ok(());
     };

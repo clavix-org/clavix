@@ -132,6 +132,7 @@ mod imp {
 
     /// What the relay last refused a request of the loaded pairing for.
     static REFUSAL: RefusalSlot = RefusalSlot::new();
+    static NOTIFIED: crate::relay_notice::Notified = crate::relay_notice::Notified::new();
 
     /// The refusal a relay error is, if it is one the user acts on.
     pub(crate) fn refusal_of(e: &RelayError) -> Option<RelayRefusal> {
@@ -148,6 +149,10 @@ mod imp {
     pub(crate) fn note_request(outcome: &std::result::Result<rq::Outcome, rq::Error>) {
         if let Some(refusal) = request_verdict(outcome) {
             REFUSAL.set(refusal);
+            match refusal {
+                Some(refusal) => crate::relay_notice::refused(&NOTIFIED, refusal),
+                None => NOTIFIED.reset(),
+            }
         }
     }
 
@@ -356,6 +361,7 @@ mod imp {
         // Another pairing, or the same one read again: what was refused
         // before shows again at the next request, if it still is.
         REFUSAL.set(None);
+        NOTIFIED.reset();
         *CHANNEL.lock() = channel;
     }
 
