@@ -20,18 +20,26 @@
 //!     recreating the tray, so changing the language in Préférences
 //!     swaps the labels live.
 
-use tauri::menu::{Menu, MenuItem};
+use parking_lot::Mutex;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 use crate::state::AppState;
+use crate::tray_status::{self, TrayState};
 use clavix_core::error::Result;
 
 const TRAY_ID: &str = "clavix-tray";
 const ITEM_OPEN: &str = "tray.open";
 const ITEM_LOCK: &str = "tray.lock";
 const ITEM_QUIT: &str = "tray.quit";
+const ITEM_STATUS: &str = "tray.status";
+
+/// What the tray is drawn with, kept to redraw it when the vault's state
+/// changes (`tray_status`): the style and language the renderer set.
+static STYLE: Mutex<TrayIconStyle> = Mutex::new(TrayIconStyle::Color);
+static LOCALE: Mutex<String> = Mutex::new(String::new());
 /// Renderer-side listener (see `+page.svelte`) flips the auth phase
 /// to `unlock` and clears the vault when this fires, so the UI
 /// catches up with the session that the tray menu just dropped on
@@ -57,7 +65,6 @@ pub(crate) const WINDOW_STATE_FLAGS: StateFlags = StateFlags::SIZE
 /// pick the matching strings here. Anything we don't recognise falls
 /// back to French — same default the rest of the app uses.
 struct TrayStrings {
-    open: &'static str,
     lock: &'static str,
     quit: &'static str,
 }
@@ -65,13 +72,11 @@ struct TrayStrings {
 fn tray_strings(locale: &str) -> TrayStrings {
     match locale {
         "en" => TrayStrings {
-            open: "Open Clavix",
             lock: "Lock now",
             quit: "Quit",
         },
         // "fr" and any unknown locale share the French default.
         _ => TrayStrings {
-            open: "Ouvrir Clavix",
             lock: "Verrouiller maintenant",
             quit: "Quitter",
         },
@@ -158,8 +163,9 @@ pub fn build_tray(app: &AppHandle) -> bool {
         }
     };
 
+    let state = tray_status::current(app);
     let result = (|| -> tauri::Result<()> {
-        let menu = build_menu(app, "fr")?;
+        let menu = build_menu(app, "fr", state)?;
 
         let builder = TrayIconBuilder::with_id(TRAY_ID);
         #[cfg(target_os = "linux")]
@@ -169,7 +175,7 @@ pub fn build_tray(app: &AppHandle) -> bool {
         };
         builder
             .icon(icon)
-            .tooltip("Clavix")
+            .tooltip(tooltip(state, "fr"))
             .menu(&menu)
             .on_menu_event(|app, event| match event.id.as_ref() {
                 ITEM_OPEN => show_main_window(app),
@@ -199,7 +205,47 @@ pub fn build_tray(app: &AppHandle) -> bool {
         eprintln!("[clavix] tray icon setup failed (non-fatal): {e}");
         return false;
     }
+    tray_status::spawn_watcher(app, apply_state);
     true
+}
+
+/// Redraw the tray for `state`: icon marks, tooltip, menu.
+fn apply_state(app: &AppHandle, state: TrayState) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    let style = *STYLE.lock();
+    let locale = LOCALE.lock().clone();
+    match tray_icon(style, state) {
+        Ok(icon) => {
+            if let Err(e) = tray.set_icon(Some(icon)) {
+                eprintln!("[clavix] tray set_icon failed (non-fatal): {e}");
+            }
+        }
+        Err(e) => eprintln!("[clavix] tray icon decode failed (non-fatal): {e}"),
+    }
+    let _ = tray.set_tooltip(Some(tooltip(state, &locale)));
+    match build_menu(app, &locale, state) {
+        Ok(menu) => {
+            if let Err(e) = tray.set_menu(Some(menu)) {
+                eprintln!("[clavix] tray set_menu failed (non-fatal): {e}");
+            }
+        }
+        Err(e) => eprintln!("[clavix] tray menu rebuild failed (non-fatal): {e}"),
+    }
+}
+
+/// Redraw now with the current state (a style or language change).
+fn redraw(app: &AppHandle) {
+    tray_status::invalidate();
+    apply_state(app, tray_status::current(app));
+}
+
+fn tooltip(state: TrayState, locale: &str) -> String {
+    match tray_status::status_label(state, locale) {
+        Some(status) => format!("Clavix — {status}"),
+        None => "Clavix".into(),
+    }
 }
 
 /// Read the OS registration instead of keeping a second, possibly stale,
@@ -246,7 +292,7 @@ pub async fn set_autostart(app: AppHandle, enabled: bool) -> std::result::Result
 /// file's bit depth. `include_bytes!` bakes the asset into the binary
 /// so there is no runtime I/O.
 fn decode_tray_icon() -> std::result::Result<tauri::image::Image<'static>, image::ImageError> {
-    tray_icon(TrayIconStyle::Color)
+    tray_icon(TrayIconStyle::Color, TrayState::NoAccount)
 }
 
 #[derive(Clone, Copy, serde::Deserialize)]
@@ -259,6 +305,7 @@ pub enum TrayIconStyle {
 
 fn tray_icon(
     style: TrayIconStyle,
+    state: TrayState,
 ) -> std::result::Result<tauri::image::Image<'static>, image::ImageError> {
     let bytes: &[u8] = match style {
         TrayIconStyle::Color => include_bytes!("../../icons/32x32.png"),
@@ -270,6 +317,14 @@ fn tray_icon(
             pixel.0[..3].fill(255);
         }
     }
+    // The padlock in the icon's own ink: dark, ringed in white, on the
+    // colour logo; the icon's colour, cut out, on the monochrome ones.
+    let (ink, halo) = match style {
+        TrayIconStyle::Color => (image::Rgba([30, 41, 59, 255]), image::Rgba([255; 4])),
+        TrayIconStyle::Black => (image::Rgba([0, 0, 0, 255]), tray_status::CLEAR),
+        TrayIconStyle::White => (image::Rgba([255; 4]), tray_status::CLEAR),
+    };
+    tray_status::decorate(&mut img, state, ink, halo);
     let (w, h) = img.dimensions();
     Ok(tauri::image::Image::new_owned(img.into_raw(), w, h))
 }
@@ -281,20 +336,58 @@ pub fn set_tray_icon_style(
     app: AppHandle,
     style: TrayIconStyle,
 ) -> std::result::Result<(), String> {
+    *STYLE.lock() = style;
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return Ok(());
     };
-    let icon = tray_icon(style).map_err(|e| format!("decode tray icon: {e}"))?;
+    let icon = tray_icon(style, tray_status::current(&app))
+        .map_err(|e| format!("decode tray icon: {e}"))?;
     tray.set_icon(Some(icon))
         .map_err(|e| format!("set tray icon: {e}"))
 }
 
-fn build_menu(app: &AppHandle, locale: &str) -> tauri::Result<Menu<tauri::Wry>> {
+/// The menu for `state`: what the vault and the agent are doing (a line
+/// that cannot be clicked), then the actions that make sense now. A
+/// locked vault offers to unlock, not to lock.
+fn build_menu(app: &AppHandle, locale: &str, state: TrayState) -> tauri::Result<Menu<tauri::Wry>> {
     let s = tray_strings(locale);
-    let open = MenuItem::with_id(app, ITEM_OPEN, s.open, true, None::<&str>)?;
-    let lock = MenuItem::with_id(app, ITEM_LOCK, s.lock, true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, ITEM_QUIT, s.quit, true, None::<&str>)?;
-    Menu::with_items(app, &[&open, &lock, &quit])
+    let menu = Menu::new(app)?;
+    if let Some(status) = tray_status::status_label(state, locale) {
+        menu.append(&MenuItem::with_id(
+            app,
+            ITEM_STATUS,
+            status,
+            false,
+            None::<&str>,
+        )?)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    let open = tray_status::open_label(state, locale);
+    menu.append(&MenuItem::with_id(
+        app,
+        ITEM_OPEN,
+        open,
+        true,
+        None::<&str>,
+    )?)?;
+    if state.can_lock() {
+        menu.append(&MenuItem::with_id(
+            app,
+            ITEM_LOCK,
+            s.lock,
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        ITEM_QUIT,
+        s.quit,
+        true,
+        None::<&str>,
+    )?)?;
+    Ok(menu)
 }
 
 /// Swap the tray menu strings to match the user's locale.
@@ -310,17 +403,8 @@ fn build_menu(app: &AppHandle, locale: &str) -> tauri::Result<Menu<tauri::Wry>> 
 pub fn set_tray_locale(app: AppHandle, locale: String) -> Result<()> {
     #[cfg(phone_approval)]
     crate::relay_notice::set_locale(&locale);
-    let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        return Ok(());
-    };
-    match build_menu(&app, &locale) {
-        Ok(menu) => {
-            if let Err(e) = tray.set_menu(Some(menu)) {
-                eprintln!("[clavix] tray set_menu failed (non-fatal): {e}");
-            }
-        }
-        Err(e) => eprintln!("[clavix] tray menu rebuild failed (non-fatal): {e}"),
-    }
+    *LOCALE.lock() = locale;
+    redraw(&app);
     Ok(())
 }
 
