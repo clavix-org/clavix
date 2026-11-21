@@ -5,6 +5,18 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0](https://github.com/clavix-org/clavix/compare/v0.36.0...v0.37.0) (2026-11-21)
+
+
+### Features
+
+* **tray:** show the lock state on the icon and in its menu ([#538](https://github.com/clavix-org/clavix/issues/538)) ([a8b2cfd](https://github.com/clavix-org/clavix/commit/a8b2cfdb3a28639b2fa435abce2785767670a74e))
+
+
+### Bug Fixes
+
+* **ssh-agent:** keep the phone's agent when a locked vault is locked again ([#537](https://github.com/clavix-org/clavix/issues/537)) ([92c9421](https://github.com/clavix-org/clavix/commit/92c9421b1679d1aae83b533e3c02ff0f07d980a1))
+
 ## [0.36.0](https://github.com/clavix-org/clavix/compare/v0.35.1...v0.36.0) (2026-11-20)
 
 
