@@ -484,6 +484,15 @@ pub(crate) fn deny_pending_confirmations(state: &AppState) {
 /// prompt with inert buttons up for the rest of its 30 s timeout, over a
 /// session that is already locked.
 pub(crate) fn stop_agent_sync(state: &AppState) {
+    stop_vault_agent_sync(state);
+    // A locked-vault agent too: logout stops everything, and the lock
+    // paths start it again afterwards (`phone_sign::after_vault_lock`).
+    crate::commands::phone_sign::stop_locked_agent_sync(state);
+}
+
+/// Everything `stop_agent_sync` stops but the locked-vault agent: the
+/// vault agent, its prompts, the approving phone's channel keys.
+fn stop_vault_agent_sync(state: &AppState) {
     let handle = {
         let mut slot = state.ssh_agent.lock();
         slot.take()
@@ -497,9 +506,6 @@ pub(crate) fn stop_agent_sync(state: &AppState) {
     if let Some(h) = handle {
         h.stop_sync();
     }
-    // A locked-vault agent too: logout stops everything, and the lock
-    // paths start it again afterwards (`phone_sign::after_vault_lock`).
-    crate::commands::phone_sign::stop_locked_agent_sync(state);
     // Same reasoning as `stop_ssh_agent`: the skip list describes a load
     // that no longer has a running agent behind it.
     state.ssh_skipped.lock().clear();
@@ -516,10 +522,31 @@ pub(crate) fn stop_agent_sync(state: &AppState) {
 /// it. Stopping first left a window where the start found the session,
 /// the stop found an empty slot, and the vault's keys were then served
 /// over a locked vault until the next unlock.
+///
+/// A lock that finds the vault already locked leaves the locked-vault
+/// agent alone. That agent is what the first lock started to serve the
+/// phone's keys, and the second lock is routine: after an auto-lock or a
+/// tray lock, the renderer hears `clavix:session-locked` and calls `lock`
+/// in turn, at whatever moment it gets to run (late, with the window
+/// hidden and the screen locked). Stopping it there left Clavix running
+/// with no agent socket until the next unlock, and nothing restarted it:
+/// `after_vault_lock` only follows a lock that dropped a session.
 pub(crate) fn lock_session_sync(state: &AppState) -> bool {
     let was_unlocked = state.session.lock().take().is_some();
-    stop_agent_sync(state);
+    if was_unlocked {
+        stop_agent_sync(state);
+    } else {
+        stop_vault_agent_sync(state);
+    }
     was_unlocked
+}
+
+/// Logout: drop the session and stop every agent, the locked-vault one
+/// included, whether or not the vault was unlocked. The caller restarts
+/// it if the phone is kept (`auth::logout`).
+pub(crate) fn logout_session_sync(state: &AppState) {
+    state.session.lock().take();
+    stop_agent_sync(state);
 }
 
 /// Put a freshly started vault agent in its slot, unless the vault was
@@ -1185,6 +1212,29 @@ mod teardown_tests {
         assert!(!socket.exists());
         // Locking twice reports that there was nothing left to lock.
         assert!(!lock_session_sync(&state));
+    }
+
+    /// After an auto-lock or a tray lock, the renderer calls `lock` again
+    /// once it hears `clavix:session-locked`, possibly long after the
+    /// phone's locked-vault agent started. That second lock must leave
+    /// the agent and its socket in place: stopping it left Clavix with no
+    /// socket at all until the next unlock.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn locking_a_locked_vault_keeps_the_phone_agent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let socket = tmp.path().join("agent.sock");
+        let state = AppState::default();
+        *state.locked_agent.lock() = Some(started(&socket).await);
+
+        assert!(!lock_session_sync(&state));
+        assert!(state.locked_agent.lock().is_some());
+        assert!(socket.exists());
+
+        // A logout, though, stops it whatever the vault's state.
+        logout_session_sync(&state);
+        assert!(state.locked_agent.lock().is_none());
+        assert!(!socket.exists());
     }
 
     /// The interleaving that used to leave an agent over a locked vault:

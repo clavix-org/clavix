@@ -1257,7 +1257,7 @@ pub(crate) mod imp {
 
             // `auth::logout`.
             remove_for_logout(&dir);
-            crate::commands::ssh::lock_session_sync(&state);
+            crate::commands::ssh::logout_session_sync(&state);
             assert!(state.locked_agent.lock().is_none());
 
             // The next launch.

@@ -642,8 +642,9 @@ pub fn logout(app: AppHandle, state: State<'_, AppState>, keep_phone: Option<boo
     } else {
         crate::commands::phone_sign::forget_on_logout();
     }
-    // Session first, then the agents: see `ssh::lock_session_sync`.
-    crate::commands::ssh::lock_session_sync(&state);
+    // Session first, then the agents (see `ssh::lock_session_sync`), the
+    // locked-vault one included even if the vault was already locked.
+    crate::commands::ssh::logout_session_sync(&state);
     clear_pending_two_factor(&state);
     store::clear_session()?;
     if let Err(e) = cache::clear_all() {
