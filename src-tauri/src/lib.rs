@@ -28,6 +28,7 @@ mod ssh_agent;
 // — `ensure_fresh_tokens` operates on a real session lock and
 // can't be exercised end-to-end without one.
 pub mod state;
+mod tray_status;
 #[cfg(feature = "update-check")]
 mod update;
 mod webauthn;
