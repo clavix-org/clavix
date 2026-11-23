@@ -112,7 +112,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # approval or signature.
 clavix-approve-core = { git = "https://github.com/clavix-org/clavix-approve", rev = "3d1321a", optional = true }
 # Pairing QR code for the phone, rendered as SVG (no network, no JS dep).
-qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
+qrcode = { version = "0.15", default-features = false, features = ["svg"], optional = true }
 
 # Desktop-session lock detection, one probe per platform (see
 # `src/screen_lock.rs`). windows-sys and core-foundation are already in
