@@ -344,10 +344,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz",
-    "sha512": "6d12128022233f6d3fb5b5923d63048b9e1054f45913192e0fd9492fe508c542adc15240f305b54eb6f58ccb354455e8d42053359ff98690bd42f98a59da292b",
+    "url": "https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.3.tgz",
+    "sha512": "9614ed8eda0402b5818e2b26b5f4bbeb54bd1e5ca7fa7219a8e6556286755e7f363cc34c56793e8e3fcd842e1f017193b3bc9d38d709891e6fc90053303bb6ee",
     "dest": "npm-registry/@jridgewell/resolve-uri/-",
-    "dest-filename": "resolve-uri-3.1.2.tgz"
+    "dest-filename": "resolve-uri-3.1.3.tgz"
   },
   {
     "type": "file",
@@ -470,6 +470,13 @@
   },
   {
     "type": "file",
+    "url": "https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.1.1.tgz",
+    "sha512": "825148243bcb343b49853f6aacc1562cf6ef4beb24c60b782f42bc122d98b6784fcac0099ec23b9f2c522712a3e000de297d0e2e30b89ed464c292cea12debc0",
+    "dest": "npm-registry/@rolldown/pluginutils/-",
+    "dest-filename": "pluginutils-1.1.1.tgz"
+  },
+  {
+    "type": "file",
     "url": "https://registry.npmjs.org/@sec-ant/readable-stream/-/readable-stream-0.4.1.tgz",
     "sha512": "f37d6aa24f6bdadf009712e4a38d32d9e6e048385e9de9c26ad2d5796fee06d9c73f28473af1b40bb4ef7e079c57ec07cc89b9294202833995a564be20c1007a",
     "dest": "npm-registry/@sec-ant/readable-stream/-",
@@ -519,10 +526,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/@sveltejs/kit/-/kit-3.2.0.tgz",
-    "sha512": "ce16fc19378577fe81c1fa9a638c0a205ede1400983a09ff28da6957a5071411e4d7be01e1def14ed37bc743f168f3e5c2709381b9e969817aafd962af3d018b",
+    "url": "https://registry.npmjs.org/@sveltejs/kit/-/kit-3.4.0.tgz",
+    "sha512": "d06052378ad1fc8a6d338d09e649e5da553f0454cfe14e6617e757044e55c87b81239f9b7ff66cdd8ceb0152abaa2759f42463f4d51a1dbd2bc7314d91f530ea",
     "dest": "npm-registry/@sveltejs/kit/-",
-    "dest-filename": "kit-3.2.0.tgz"
+    "dest-filename": "kit-3.4.0.tgz"
   },
   {
     "type": "file",
@@ -1303,10 +1310,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/cookie/-/cookie-2.0.1.tgz",
-    "sha512": "cae4e8a95bd1ae3ea97c35d113240002ff12900124ffc192de34114e250c9bae9356d0589aa41ea048cbd8b9aaf11a68eb6ef5bc7efa2274c28538ad1009bae7",
+    "url": "https://registry.npmjs.org/cookie/-/cookie-2.0.2.tgz",
+    "sha512": "48bd1c56e11d113129ee937416e65bd35b68737be738311f5540a8a311b5489374c888ab87b24c6fd5fd6ef7c215fd2fcf36d3ebc45d6ca0c7613896cbb6bb8b",
     "dest": "npm-registry/cookie/-",
-    "dest-filename": "cookie-2.0.1.tgz"
+    "dest-filename": "cookie-2.0.2.tgz"
   },
   {
     "type": "file",
@@ -1611,10 +1618,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/esrap/-/esrap-2.4.0.tgz",
-    "sha512": "0903dc9de107c3f7338f7daec100b9da76276b1f07e125eddb914233e2c8c06678f5c308c693a3ddb3fcc26cdc23e6741c8cb92a40a568f8512df0b24b3c073c",
+    "url": "https://registry.npmjs.org/esrap/-/esrap-2.4.2.tgz",
+    "sha512": "5a9559b169d285e1c1cbe7c6aceff476ec276dee8e0d91f543205b8eea6b7920891a88da05646772babe1d578827c78742313048983d842e323c9c8d54eae9aa",
     "dest": "npm-registry/esrap/-",
-    "dest-filename": "esrap-2.4.0.tgz"
+    "dest-filename": "esrap-2.4.2.tgz"
   },
   {
     "type": "file",
@@ -2906,10 +2913,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/svelte/-/svelte-5.57.3.tgz",
-    "sha512": "e6601fb4cdd2a0357d5f4cdd177f3a17da76a6ff2228ec22fca7c14b55e704091508a17354e2c75286bc886580b786eea2270b9b2595469bae0f9c29957390b2",
+    "url": "https://registry.npmjs.org/svelte/-/svelte-5.58.0.tgz",
+    "sha512": "ace30a4c3f563f60ba6a15839a7b5ecb8a7e26a531b6ea75c3d1b729d56e4db3461e2e6ef7b88cc3408873c6be179ad9b621fbc7df245678839414514797bdf3",
     "dest": "npm-registry/svelte/-",
-    "dest-filename": "svelte-5.57.3.tgz"
+    "dest-filename": "svelte-5.58.0.tgz"
   },
   {
     "type": "file",
@@ -3796,7 +3803,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"3.1.2\"}, \"name\": \"@jridgewell/resolve-uri\", \"time\": {\"3.1.2\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.1.2\": {\"dist\": {\"integrity\": \"sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==\", \"tarball\": \"http://127.0.0.1:4873/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz\"}, \"name\": \"@jridgewell/resolve-uri\", \"version\": \"3.1.2\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"3.1.3\"}, \"name\": \"@jridgewell/resolve-uri\", \"time\": {\"3.1.3\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.1.3\": {\"dist\": {\"integrity\": \"sha512-lhTtjtoEArWBjismtfS761S9Hlyn+nIZqOZVYoZ1Xn82PMNMVnk+jj/NhC4fAXGTs7ydONcJiR5vyQBTMDu27g==\", \"tarball\": \"http://127.0.0.1:4873/@jridgewell/resolve-uri/-/resolve-uri-3.1.3.tgz\"}, \"name\": \"@jridgewell/resolve-uri\", \"version\": \"3.1.3\"}}}",
     "dest": "npm-registry/@jridgewell/resolve-uri",
     "dest-filename": "packument.json"
   },
@@ -4060,7 +4067,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"1.0.1\"}, \"name\": \"@rolldown/pluginutils\", \"time\": {\"1.0.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"1.0.1\": {\"dist\": {\"integrity\": \"sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==\", \"tarball\": \"http://127.0.0.1:4873/@rolldown/pluginutils/-/pluginutils-1.0.1.tgz\"}, \"name\": \"@rolldown/pluginutils\", \"version\": \"1.0.1\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"1.0.1\"}, \"name\": \"@rolldown/pluginutils\", \"time\": {\"1.0.1\": \"2000-01-01T00:00:00.000Z\", \"1.1.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"1.0.1\": {\"dist\": {\"integrity\": \"sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==\", \"tarball\": \"http://127.0.0.1:4873/@rolldown/pluginutils/-/pluginutils-1.0.1.tgz\"}, \"name\": \"@rolldown/pluginutils\", \"version\": \"1.0.1\"}, \"1.1.1\": {\"dist\": {\"integrity\": \"sha512-glFIJDvLNDtJhT9qrMFWLPbvS+skxgt4L0K8Ei2YtnhPysAJnsI7nyxSJxKj4ADeKX0OLjC4ntRkwpLOoS3rwA==\", \"tarball\": \"http://127.0.0.1:4873/@rolldown/pluginutils/-/pluginutils-1.1.1.tgz\"}, \"name\": \"@rolldown/pluginutils\", \"version\": \"1.1.1\"}}}",
     "dest": "npm-registry/@rolldown/pluginutils",
     "dest-filename": "packument.json"
   },
@@ -4102,7 +4109,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"3.2.0\"}, \"name\": \"@sveltejs/kit\", \"time\": {\"3.2.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.2.0\": {\"dist\": {\"integrity\": \"sha512-zhb8GTeFd/6BwfqaY4wKIF7eFACYOgn/KNppV6UHFBHk174B4d7xTtN7x0PxaPPlwnCTgbnpaYF6r9lirz0Biw==\", \"tarball\": \"http://127.0.0.1:4873/@sveltejs/kit/-/kit-3.2.0.tgz\"}, \"name\": \"@sveltejs/kit\", \"version\": \"3.2.0\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"3.4.0\"}, \"name\": \"@sveltejs/kit\", \"time\": {\"3.4.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"3.4.0\": {\"dist\": {\"integrity\": \"sha512-0GBSN4rR/IptM40J5knl2lU/BFTP4U5mF+dXBE5VyHuBI5+bf/Zs3YzrAVKrqidZ9CRj9NUaHb0rxzFNkfUw6g==\", \"tarball\": \"http://127.0.0.1:4873/@sveltejs/kit/-/kit-3.4.0.tgz\"}, \"name\": \"@sveltejs/kit\", \"version\": \"3.4.0\"}}}",
     "dest": "npm-registry/@sveltejs/kit",
     "dest-filename": "packument.json"
   },
@@ -4744,7 +4751,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"2.0.1\"}, \"name\": \"cookie\", \"time\": {\"2.0.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"2.0.1\": {\"dist\": {\"integrity\": \"sha512-yuToqVvRrj6pfDXREyQAAv8SkAEk/8GS3jQRTiUMm66TVtBYmqQeoEjL2Lmq8Rpo6271vH76InTChTitEAm65w==\", \"tarball\": \"http://127.0.0.1:4873/cookie/-/cookie-2.0.1.tgz\"}, \"name\": \"cookie\", \"version\": \"2.0.1\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"2.0.2\"}, \"name\": \"cookie\", \"time\": {\"2.0.2\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"2.0.2\": {\"dist\": {\"integrity\": \"sha512-SL0cVuEdETEp7pN0FuZb01toc3vnODEfVUCooxG1SJN0yIirh7JMb9X9bvfCFf0vzzbT68RdbKDHYTiWy7a7iw==\", \"tarball\": \"http://127.0.0.1:4873/cookie/-/cookie-2.0.2.tgz\"}, \"name\": \"cookie\", \"version\": \"2.0.2\"}}}",
     "dest": "npm-registry/cookie",
     "dest-filename": "packument.json"
   },
@@ -4984,7 +4991,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"2.4.0\"}, \"name\": \"esrap\", \"time\": {\"2.4.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"2.4.0\": {\"dist\": {\"integrity\": \"sha512-CQPcneEHw/czj32uwQC52nYnax8H4SXt25FCM+LIwGZ49cMIxpOj3bP8wmzcI+Z0HIy5KkClaPhRLfCySzwHPA==\", \"tarball\": \"http://127.0.0.1:4873/esrap/-/esrap-2.4.0.tgz\"}, \"name\": \"esrap\", \"version\": \"2.4.0\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"2.4.2\"}, \"name\": \"esrap\", \"time\": {\"2.4.2\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"2.4.2\": {\"dist\": {\"integrity\": \"sha512-WpVZsWnSheHBy+fGrO/0duwnbe6ODZH1QyBbjupreSCJGojaBWRncrq+HVeIJ8eHQjEwSJg9hC4yPJyNVOrpqg==\", \"tarball\": \"http://127.0.0.1:4873/esrap/-/esrap-2.4.2.tgz\"}, \"name\": \"esrap\", \"version\": \"2.4.2\"}}}",
     "dest": "npm-registry/esrap",
     "dest-filename": "packument.json"
   },
@@ -6022,7 +6029,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"5.57.3\"}, \"name\": \"svelte\", \"time\": {\"5.57.3\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.57.3\": {\"dist\": {\"integrity\": \"sha512-5mAftM3SoDV9X0zdF386F9p2pv8iKOwi/KfBS1XnBAkVCKFzVOLHUoa8iGWAt4buoicLmyWVRpuuD5wplXOQsg==\", \"tarball\": \"http://127.0.0.1:4873/svelte/-/svelte-5.57.3.tgz\"}, \"name\": \"svelte\", \"version\": \"5.57.3\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"5.58.0\"}, \"name\": \"svelte\", \"time\": {\"5.58.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.58.0\": {\"dist\": {\"integrity\": \"sha512-rOMKTD9WP2C6ahWDmntey4p+JqUxtup1w9G3KdVuTbNGHi5u97iMw0CIc8a+F5rZtiH7x98kVniDlBRRR5e98w==\", \"tarball\": \"http://127.0.0.1:4873/svelte/-/svelte-5.58.0.tgz\"}, \"name\": \"svelte\", \"version\": \"5.58.0\"}}}",
     "dest": "npm-registry/svelte",
     "dest-filename": "packument.json"
   },
