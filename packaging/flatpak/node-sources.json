@@ -736,10 +736,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/@vitest/mocker/-/mocker-5.1.0.tgz",
-    "sha512": "e6e981f7f8e559ca954ba7ecac59afe46767a6eeb00148a8fe510ec009af07bbfe945a3f216d81f458400f4a75f460942d380cccb09d526b820c29c0cd6829a5",
+    "url": "https://registry.npmjs.org/@vitest/mocker/-/mocker-5.1.1.tgz",
+    "sha512": "6f63a04c1e3edc899621569f5ca6b3257c0b2b043150d9e2c7a6f7c54bd44cc87b4725e5aedce8c5f66bf1a133f7390738c012e0ae65bb74ef156a2255e55342",
     "dest": "npm-registry/@vitest/mocker/-",
-    "dest-filename": "mocker-5.1.0.tgz"
+    "dest-filename": "mocker-5.1.1.tgz"
   },
   {
     "type": "file",
@@ -757,10 +757,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/@vitest/spy/-/spy-5.1.0.tgz",
-    "sha512": "d833cee4e30758aac19e00be7c299342a7a6345d2089d461a779716c1991856f8cd5726b7e03e9a8da9655ebd7b67d9fdae7c3e59691d41e81eb8d5a025717e4",
+    "url": "https://registry.npmjs.org/@vitest/spy/-/spy-5.1.1.tgz",
+    "sha512": "e8af02e9a9501b5fd873cfd9236da2252ec912cc4f755ceab6a0eafbfc4ce19d26195ca47a63158cb86a332feaebf207606de4283f21292c117a7fd977223dbd",
     "dest": "npm-registry/@vitest/spy/-",
-    "dest-filename": "spy-5.1.0.tgz"
+    "dest-filename": "spy-5.1.1.tgz"
   },
   {
     "type": "file",
@@ -2941,10 +2941,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/tinybench/-/tinybench-6.2.3.tgz",
-    "sha512": "025d350b62480673b60970803dba4097ab1488e647793846b4760d4dae75251c3d3f258e09dafef4e9e0d39478aa0fd2937f87eb8e44f28bf5876739f22b7237",
+    "url": "https://registry.npmjs.org/tinybench/-/tinybench-6.2.4.tgz",
+    "sha512": "490e768c49dc5f16cc0b326e63603f8c621b6c0bba358b01596ee0af3da9344f849f341da066a805fa64e2a0bfa2913baa251c1a61a0686233e44a07752d4ef7",
     "dest": "npm-registry/tinybench/-",
-    "dest-filename": "tinybench-6.2.3.tgz"
+    "dest-filename": "tinybench-6.2.4.tgz"
   },
   {
     "type": "file",
@@ -3151,10 +3151,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/vitest/-/vitest-5.1.0.tgz",
-    "sha512": "33398d167af06bcbfc945d5b2f1c37509e04444c153956fbe55a8966650346327a125b8aff1f6d87ba936da783938d56c44d46c56aa64d771db1fa1b7c7e6c38",
+    "url": "https://registry.npmjs.org/vitest/-/vitest-5.1.1.tgz",
+    "sha512": "b6b566cd414e4ab68265c237b9920c0f916a061e1ab45902fd7b893ff214eeab7241acb4142b3721afb4422436249c06c961bfc6b701a0935e976f8eee4119d2",
     "dest": "npm-registry/vitest/-",
-    "dest-filename": "vitest-5.1.0.tgz"
+    "dest-filename": "vitest-5.1.1.tgz"
   },
   {
     "type": "file",
@@ -4324,7 +4324,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"5.1.0\"}, \"name\": \"@vitest/mocker\", \"time\": {\"5.1.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.1.0\": {\"dist\": {\"integrity\": \"sha512-5umB9/jlWcqVS6fsrFmv5Gdnpu6wAUio/lEOwAmvB7v+lFo/IW2B9FhAD0p19GCULTgMzLCdUmuCDCnAzWgppQ==\", \"tarball\": \"http://127.0.0.1:4873/@vitest/mocker/-/mocker-5.1.0.tgz\"}, \"name\": \"@vitest/mocker\", \"version\": \"5.1.0\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"5.1.1\"}, \"name\": \"@vitest/mocker\", \"time\": {\"5.1.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.1.1\": {\"dist\": {\"integrity\": \"sha512-b2OgTB4+3ImWIVafXKazJXwLKwQxUNnix6b3xUvUTMh7RyXlrtzoxfZr8aEz9zkHOMAS4K5lu3TvFWoiVeVTQg==\", \"tarball\": \"http://127.0.0.1:4873/@vitest/mocker/-/mocker-5.1.1.tgz\"}, \"name\": \"@vitest/mocker\", \"version\": \"5.1.1\"}}}",
     "dest": "npm-registry/@vitest/mocker",
     "dest-filename": "packument.json"
   },
@@ -4342,7 +4342,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"5.1.0\"}, \"name\": \"@vitest/spy\", \"time\": {\"5.1.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.1.0\": {\"dist\": {\"integrity\": \"sha512-2DPO5OMHWKrBngC+fCmTQqemNF0gidRhp3lxbBmRhW+M1XJrfgPpqNqWVevXtn2f2ufD5ZaR1B6B641aAlcX5A==\", \"tarball\": \"http://127.0.0.1:4873/@vitest/spy/-/spy-5.1.0.tgz\"}, \"name\": \"@vitest/spy\", \"version\": \"5.1.0\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"5.1.1\"}, \"name\": \"@vitest/spy\", \"time\": {\"5.1.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.1.1\": {\"dist\": {\"integrity\": \"sha512-6K8C6alQG1/Yc8/ZI22iJS7JEsxPdVzqtqDq+/xM4Z0mGVykemMVjLhqMy/q6/IHYG3kKD8hKSwRen/ZdyI9vQ==\", \"tarball\": \"http://127.0.0.1:4873/@vitest/spy/-/spy-5.1.1.tgz\"}, \"name\": \"@vitest/spy\", \"version\": \"5.1.1\"}}}",
     "dest": "npm-registry/@vitest/spy",
     "dest-filename": "packument.json"
   },
@@ -6058,7 +6058,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"6.2.3\"}, \"name\": \"tinybench\", \"time\": {\"6.2.3\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"6.2.3\": {\"dist\": {\"integrity\": \"sha512-Al01C2JIBnO2CXCAPbpAl6sUiOZHeThGtHYNTa51JRw9PyWOCdr+9Ong05R4qg/Sk3+H645E8ov1h2c58ityNw==\", \"tarball\": \"http://127.0.0.1:4873/tinybench/-/tinybench-6.2.3.tgz\"}, \"name\": \"tinybench\", \"version\": \"6.2.3\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"6.2.4\"}, \"name\": \"tinybench\", \"time\": {\"6.2.4\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"6.2.4\": {\"dist\": {\"integrity\": \"sha512-SQ52jEncXxbMCzJuY2A/jGIbbAu6NYsBWW7grz2pNE+EnzQdoGaoBfpk4qC/opE7qiUcGmGgaGIz5EoHdS1O9w==\", \"tarball\": \"http://127.0.0.1:4873/tinybench/-/tinybench-6.2.4.tgz\"}, \"name\": \"tinybench\", \"version\": \"6.2.4\"}}}",
     "dest": "npm-registry/tinybench",
     "dest-filename": "packument.json"
   },
@@ -6208,7 +6208,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"5.1.0\"}, \"name\": \"vitest\", \"time\": {\"5.1.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.1.0\": {\"dist\": {\"integrity\": \"sha512-MzmNFnrwa8v8lF1bLxw3UJ4EREwVOVb75VqJZmUDRjJ6EluK/x9th7qTbaeDk41WxE1GxWqmTXcdsfobfH5sOA==\", \"tarball\": \"http://127.0.0.1:4873/vitest/-/vitest-5.1.0.tgz\"}, \"name\": \"vitest\", \"version\": \"5.1.0\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"5.1.1\"}, \"name\": \"vitest\", \"time\": {\"5.1.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"5.1.1\": {\"dist\": {\"integrity\": \"sha512-trVmzUFOSraCZcI3uZIMD5FqBh4atFkC/XuJP/IU7qtyQay0FCs3Ia+0QiQ2JJwGyWG/xrcBoJNel2+O7kEZ0g==\", \"tarball\": \"http://127.0.0.1:4873/vitest/-/vitest-5.1.1.tgz\"}, \"name\": \"vitest\", \"version\": \"5.1.1\"}}}",
     "dest": "npm-registry/vitest",
     "dest-filename": "packument.json"
   },
