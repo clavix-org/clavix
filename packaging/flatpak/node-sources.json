@@ -2066,10 +2066,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/jsdom/-/jsdom-31.0.0.tgz",
-    "sha512": "c409210fdcf57b2142e7e4148bd2b6e0269926074243618e18b5b519d543a10be4a7f031107f53434a40a653ce948895f7685f7209c53800d9ca96e381b053e9",
+    "url": "https://registry.npmjs.org/jsdom/-/jsdom-31.0.1.tgz",
+    "sha512": "09b8492fc65083778ab30c5266d87840ef6d5b48cf221991d2fb525d049b2927d66f0213ea1a11735ef07472154d0e37288d26755e624c9af7dbcd480e0559e6",
     "dest": "npm-registry/jsdom/-",
-    "dest-filename": "jsdom-31.0.0.tgz"
+    "dest-filename": "jsdom-31.0.1.tgz"
   },
   {
     "type": "file",
@@ -2969,17 +2969,17 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/tldts-core/-/tldts-core-7.4.18.tgz",
-    "sha512": "288d8f2af0a6bd023fc43eb2a4faa45348bba3135747f3b9f112d1687478b2fb20554436244fd70bc06d31b1ba3d27a10f6ec8f2c64945c0b50129c2cba969de",
+    "url": "https://registry.npmjs.org/tldts-core/-/tldts-core-7.5.5.tgz",
+    "sha512": "ac4273ffc709158fdb745df9e20975e32c5abdbac86ef33e15c6e461543a09208c41325d5055089b7f534d64a218fbdca5087bfc5eaa1eb0f74a4c30760b430b",
     "dest": "npm-registry/tldts-core/-",
-    "dest-filename": "tldts-core-7.4.18.tgz"
+    "dest-filename": "tldts-core-7.5.5.tgz"
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/tldts/-/tldts-7.4.18.tgz",
-    "sha512": "b289b103cc4a014ce50319744d7fe33126086d13452151a723dea954624f78c73906c1e67d55e7ea63894fa53ef842e7974e1e19fce97dc12e65ef168804a45e",
+    "url": "https://registry.npmjs.org/tldts/-/tldts-7.5.5.tgz",
+    "sha512": "1f2e8822669600bcc93a0088b2ce202058b81b433d96a93de6914a09457140f670f9b899d4fbfa7f6f09a5881a869241f81b9f0341d8b0853f68ffd6231dca46",
     "dest": "npm-registry/tldts/-",
-    "dest-filename": "tldts-7.4.18.tgz"
+    "dest-filename": "tldts-7.5.5.tgz"
   },
   {
     "type": "file",
@@ -2990,10 +2990,10 @@
   },
   {
     "type": "file",
-    "url": "https://registry.npmjs.org/tough-cookie/-/tough-cookie-6.0.2.tgz",
-    "sha512": "7b18189a798bfec269477ba965f5c6e4fa1ab574228b9e710225c65f363eb1138b67f63e48b729f4f809348f55cf7ec7a50ef85af0dc2d3f1eaa6fa4577173ac",
+    "url": "https://registry.npmjs.org/tough-cookie/-/tough-cookie-6.1.0.tgz",
+    "sha512": "153c5cf2ef0a976b73d0b6add6ef24b2f732f1bc0747210c6b0c135b26e8e7526a682e8eed2bdfba100a83e2dde95ab221ed9044907363d1c0ef2d96c85453db",
     "dest": "npm-registry/tough-cookie/-",
-    "dest-filename": "tough-cookie-6.0.2.tgz"
+    "dest-filename": "tough-cookie-6.1.0.tgz"
   },
   {
     "type": "file",
@@ -3071,6 +3071,13 @@
     "sha512": "f9f7677544f004ff3a7158e2853a76d61647a3b77aa23d5cff8ed73c0de52fc98cd171ecf82e0491c8e6811b059c59367ff50e3460f2f48b4122d997b0b3901f",
     "dest": "npm-registry/undici/-",
     "dest-filename": "undici-8.12.3.tgz"
+  },
+  {
+    "type": "file",
+    "url": "https://registry.npmjs.org/undici/-/undici-8.12.4.tgz",
+    "sha512": "f0cc7eb8d28a111d9b03801db5e764a916f050220916bda725c91745ee72ac3ab378fab02cfed535c72d37cfd77660d26c5ee64be8c9288b3394bfaf6da9b554",
+    "dest": "npm-registry/undici/-",
+    "dest-filename": "undici-8.12.4.tgz"
   },
   {
     "type": "file",
@@ -5362,7 +5369,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"31.0.0\"}, \"name\": \"jsdom\", \"time\": {\"31.0.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"31.0.0\": {\"dist\": {\"integrity\": \"sha512-xAkhD9z1eyFC5+QUi9K24CaZJgdCQ2GOGLW1GdVDoQvkp/AxEH9TQ0pAplPOlIiV92hfcgnFOADZypbjgbBT6Q==\", \"tarball\": \"http://127.0.0.1:4873/jsdom/-/jsdom-31.0.0.tgz\"}, \"name\": \"jsdom\", \"version\": \"31.0.0\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"31.0.1\"}, \"name\": \"jsdom\", \"time\": {\"31.0.1\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"31.0.1\": {\"dist\": {\"integrity\": \"sha512-CbhJL8ZQg3eKswxSZth4QO9tW0jPIhmR0vtSXQSbKSfWbwIT6hoRc17wdHIVTQ43KI0mdV5iTJr3281IDgVZ5g==\", \"tarball\": \"http://127.0.0.1:4873/jsdom/-/jsdom-31.0.1.tgz\"}, \"name\": \"jsdom\", \"version\": \"31.0.1\"}}}",
     "dest": "npm-registry/jsdom",
     "dest-filename": "packument.json"
   },
@@ -6082,13 +6089,13 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"7.4.18\"}, \"name\": \"tldts\", \"time\": {\"7.4.18\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"7.4.18\": {\"dist\": {\"integrity\": \"sha512-somxA8xKAUzlAxl0TX/jMSYIbRNFIVGnI96pVGJPeMc5BsHmfVXn6mOJT6U++ELnl04eGfzpfcEuZe8WiASkXg==\", \"tarball\": \"http://127.0.0.1:4873/tldts/-/tldts-7.4.18.tgz\"}, \"name\": \"tldts\", \"version\": \"7.4.18\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"7.5.5\"}, \"name\": \"tldts\", \"time\": {\"7.5.5\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"7.5.5\": {\"dist\": {\"integrity\": \"sha512-Hy6IImaWALzJOgCIss4gIFi4G0M9lqk95pFKCUVxQPZw+biZ1Pv6f28JpYgahpJB+BufA0HYsIU/aP/WIx3KRg==\", \"tarball\": \"http://127.0.0.1:4873/tldts/-/tldts-7.5.5.tgz\"}, \"name\": \"tldts\", \"version\": \"7.5.5\"}}}",
     "dest": "npm-registry/tldts",
     "dest-filename": "packument.json"
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"7.4.18\"}, \"name\": \"tldts-core\", \"time\": {\"7.4.18\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"7.4.18\": {\"dist\": {\"integrity\": \"sha512-KI2PKvCmvQI/xD6ypPqkU0i7oxNXR/O58RLRaHR4svsgVUQ2JE/XC8BtMbG6PSehD27I8sZJRcC1ASnCy6lp3g==\", \"tarball\": \"http://127.0.0.1:4873/tldts-core/-/tldts-core-7.4.18.tgz\"}, \"name\": \"tldts-core\", \"version\": \"7.4.18\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"7.5.5\"}, \"name\": \"tldts-core\", \"time\": {\"7.5.5\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"7.5.5\": {\"dist\": {\"integrity\": \"sha512-rEJz/8cJFY/bdF354gl14yxavbrIbvM+FcbkYVQ6CSCMQTJdUFUIm39TTWSiGPvcpQh7/F6qHrD3SkwwdgtDCw==\", \"tarball\": \"http://127.0.0.1:4873/tldts-core/-/tldts-core-7.5.5.tgz\"}, \"name\": \"tldts-core\", \"version\": \"7.5.5\"}}}",
     "dest": "npm-registry/tldts-core",
     "dest-filename": "packument.json"
   },
@@ -6100,7 +6107,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"6.0.2\"}, \"name\": \"tough-cookie\", \"time\": {\"6.0.2\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"6.0.2\": {\"dist\": {\"integrity\": \"sha512-exgYmnmL/sJpR3upZfXG5PoatXQii55xAiXGXzY+sROLZ/Y+SLcp9PgJNI9Vz37HpQ74WvDcLT8eqm+kV3FzrA==\", \"tarball\": \"http://127.0.0.1:4873/tough-cookie/-/tough-cookie-6.0.2.tgz\"}, \"name\": \"tough-cookie\", \"version\": \"6.0.2\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"6.1.0\"}, \"name\": \"tough-cookie\", \"time\": {\"6.1.0\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"6.1.0\": {\"dist\": {\"integrity\": \"sha512-FTxc8u8Kl2tz0Lat1u8ksvcy8bwHRyEMawwTWybo51JqaC6O7SvfuhAKg+Ld6VqyIe2QRJBzY9HA7y2WyFRT2w==\", \"tarball\": \"http://127.0.0.1:4873/tough-cookie/-/tough-cookie-6.1.0.tgz\"}, \"name\": \"tough-cookie\", \"version\": \"6.1.0\"}}}",
     "dest": "npm-registry/tough-cookie",
     "dest-filename": "packument.json"
   },
@@ -6136,7 +6143,7 @@
   },
   {
     "type": "inline",
-    "contents": "{\"dist-tags\": {\"latest\": \"7.30.1\"}, \"name\": \"undici\", \"time\": {\"7.30.1\": \"2000-01-01T00:00:00.000Z\", \"8.12.3\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"7.30.1\": {\"dist\": {\"integrity\": \"sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==\", \"tarball\": \"http://127.0.0.1:4873/undici/-/undici-7.30.1.tgz\"}, \"name\": \"undici\", \"version\": \"7.30.1\"}, \"8.12.3\": {\"dist\": {\"integrity\": \"sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==\", \"tarball\": \"http://127.0.0.1:4873/undici/-/undici-8.12.3.tgz\"}, \"name\": \"undici\", \"version\": \"8.12.3\"}}}",
+    "contents": "{\"dist-tags\": {\"latest\": \"7.30.1\"}, \"name\": \"undici\", \"time\": {\"7.30.1\": \"2000-01-01T00:00:00.000Z\", \"8.12.3\": \"2000-01-01T00:00:00.000Z\", \"8.12.4\": \"2000-01-01T00:00:00.000Z\"}, \"versions\": {\"7.30.1\": {\"dist\": {\"integrity\": \"sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==\", \"tarball\": \"http://127.0.0.1:4873/undici/-/undici-7.30.1.tgz\"}, \"name\": \"undici\", \"version\": \"7.30.1\"}, \"8.12.3\": {\"dist\": {\"integrity\": \"sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==\", \"tarball\": \"http://127.0.0.1:4873/undici/-/undici-8.12.3.tgz\"}, \"name\": \"undici\", \"version\": \"8.12.3\"}, \"8.12.4\": {\"dist\": {\"integrity\": \"sha512-8Mx+uNKKER2bA4AdtedkqRbwUCIJFr2nJckXRe5yrDqzePqwLP7VNcctN8/XdmDSbF7mS+jJKIszlL+vbam1VA==\", \"tarball\": \"http://127.0.0.1:4873/undici/-/undici-8.12.4.tgz\"}, \"name\": \"undici\", \"version\": \"8.12.4\"}}}",
     "dest": "npm-registry/undici",
     "dest-filename": "packument.json"
   },
