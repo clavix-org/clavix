@@ -1,12 +1,16 @@
 # Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io),
-certificate by [SignPath Foundation](https://signpath.org).
-
-> **Status:** application to the SignPath Foundation program pending.
-> Until it is approved, Windows release binaries are **not** signed and
+> **Status:** the Windows certificate is being obtained. Until the first
+> signed release, Windows release binaries are **not** signed and
 > SmartScreen warns on first launch. This page describes the policy that
-> will apply from the first signed release onward.
+> will apply from that release onward.
+
+Windows releases are signed with a
+[Certum Open Source Code Signing](https://shop.certum.eu/open-source-code-signing-on-simplysign.html)
+certificate. Certum issues these to individuals only, after checking
+their identity, so the publisher that Windows displays is
+"Open Source Developer" followed by the name of the maintainer who holds
+the certificate, not "Clavix".
 
 ## What gets signed
 
@@ -14,9 +18,10 @@ Only the Windows release bundles that the
 [release workflow](.github/workflows/release.yml) builds from a tagged
 commit of this repository:
 
-- the MSI installer (`clavix_<version>_x64_en-US.msi`);
-- the NSIS installer (`clavix_<version>_x64-setup.exe`);
-- the `clavix.exe` executable they contain.
+- the `clavix.exe` executable;
+- the NSIS installer (`clavix_<version>_x64-setup.exe`) and the
+  uninstaller it installs;
+- the MSI installer (`clavix_<version>_x64_en-US.msi`).
 
 Nothing built on a developer's machine is ever signed. Development builds
 (`dev-build.yml`), pull request builds, and binaries from forks are not
@@ -40,33 +45,31 @@ gh attestation verify <file> --repo clavix-org/clavix
    creates the version tag.
 2. GitHub Actions builds the bundles from that tag on GitHub-hosted
    runners.
-3. The workflow submits the unsigned Windows bundles to SignPath, which
-   checks that they come from that workflow run of this repository.
-4. An approver reviews the signing request and approves it manually in
-   SignPath. No release is signed without that approval.
-5. SignPath returns the signed files, which the workflow attaches to the
-   GitHub release.
+3. During the build, each Windows file is signed with the certificate,
+   whose private key never leaves Certum's SimplySign cloud service: the
+   workflow sends a digest of the file and receives the signature.
+4. The workflow checks every signature, and publishes nothing for Windows
+   if one is missing or invalid.
 
-The SignPath artifact configuration enforces the product name and
-version metadata of every signed file, so a signature cannot be applied
-to a binary that does not identify itself as that Clavix release.
+The credentials that open the signing service are repository secrets,
+available only to workflows run from this repository, never to pull
+requests from forks.
 
 ## Team roles
 
 | Role | Members |
 | --- | --- |
 | Committers and reviewers | [Upellift99](https://github.com/Upellift99) |
-| Approvers | [Upellift99](https://github.com/Upellift99) |
+| Certificate holder | [Upellift99](https://github.com/Upellift99) |
 
 - **Committers** may push to this repository. Every change to `master`
   goes through a pull request and the required CI checks.
 - **Reviewers** review pull requests from contributors who are not
   committers before they are merged.
-- **Approvers** approve each signing request in SignPath and decide
-  whether a release may be signed.
+- **The certificate holder** is the person Certum issued the certificate
+  to, and the only one with access to the signing account.
 
-Every team member uses multi-factor authentication on GitHub and on
-SignPath.
+Every team member uses multi-factor authentication on GitHub.
 
 ## Privacy policy
 
