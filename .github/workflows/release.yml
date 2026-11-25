@@ -215,7 +215,43 @@ jobs:
           done
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
+      # Windows signing, so SmartScreen and UAC name a publisher instead of
+      # warning about an unknown one. The certificate is a Certum Open Source
+      # Code Signing certificate whose key stays in Certum's SimplySign cloud;
+      # ssign (github.com/Le-Syl21/ssign, a third-party client, pinned by
+      # checksum below) logs in there with the account e-mail and the TOTP
+      # seed and has each file signed.
+      #
+      # Same rule as macOS: nothing set means unsigned bundles (forks), a
+      # half-filled set fails loudly. WINDOWS_SIGNING.md explains the setup.
+      # The seed is NOT exported to GITHUB_ENV: only the steps that sign
+      # receive it.
+      - name: Configure Windows code signing
+        id: windows-signing
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
+          CERTUM_OTP: ${{ secrets.CERTUM_OTP }}
+        run: |
+          if [ -z "$CERTUM_EMAIL" ] && [ -z "$CERTUM_OTP" ]; then
+            echo "::warning::No Certum signing secrets set; the Windows bundles will be unsigned."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for n in CERTUM_EMAIL CERTUM_OTP; do
+            if [ -z "${!n}" ]; then
+              echo "::error::Secret $n is missing (see WINDOWS_SIGNING.md)."
+              exit 1
+            fi
+          done
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      # With Windows signing on, tauri-action must not run: it publishes the
+      # bundles the moment they are built, and the MSI is still unsigned at
+      # that point. The steps after it build, verify, then publish instead.
       - name: Build and bundle with tauri-action
+        if: steps.windows-signing.outputs.enabled != 'true'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -226,6 +262,114 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.tauri-target }}
+
+      # A release binary rather than `cargo install`: no compile, and a
+      # checksum that pins exactly what gets to see the signing credentials.
+      # Bumping SSIGN_VERSION means updating the checksums here and in the
+      # "Sign the Windows MSI" job.
+      - name: Install ssign
+        if: steps.windows-signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SSIGN_VERSION: v0.1.11
+          SSIGN_SHA256: 3dacba75082d2949bae332f6dfac342843a85838db75deba9721b40b43fe73f0
+        run: |
+          dir="$RUNNER_TEMP/ssign"
+          mkdir -p "$dir"
+          gh release download "$SSIGN_VERSION" --repo Le-Syl21/ssign \
+            --pattern ssign-windows-x86_64.zip --dir "$dir"
+          echo "$SSIGN_SHA256  $dir/ssign-windows-x86_64.zip" | sha256sum --check
+          unzip -o "$dir/ssign-windows-x86_64.zip" -d "$dir"
+
+      # Tauri runs the sign command on clavix.exe before packing it, on the
+      # NSIS uninstaller, and on each finished installer, so the files that
+      # end up on the user's disk are signed too, not only the download. The
+      # script skips the MSI (see the "Sign the Windows MSI" job). ssign keeps
+      # its Certum session for 20 minutes, so those calls share one login.
+      - name: Build and sign the Windows bundles
+        if: steps.windows-signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
+          CERTUM_OTP: ${{ secrets.CERTUM_OTP }}
+        run: |
+          export SSIGN_EXE="$(cygpath -w "$RUNNER_TEMP/ssign/ssign.exe")"
+          script="$(cygpath -m "$GITHUB_WORKSPACE/.github/scripts/sign-windows.ps1")"
+          config="$(cygpath -m "$RUNNER_TEMP/tauri.signing.conf.json")"
+          jq -n --arg script "$script" '{
+            bundle: { windows: { signCommand: {
+              cmd: "pwsh",
+              args: ["-NoProfile", "-NonInteractive", "-File", $script, "%1"]
+            } } }
+          }' > "$config"
+          pnpm tauri build --config "$config"
+
+      # Checks what a user's Windows will check, so a sign command that
+      # Tauri never called (or that signed with something untrusted) fails
+      # the release job instead of reaching users as a SmartScreen warning.
+      # The clavix.exe checked here is the one Tauri signed in place and
+      # then packed into both installers.
+      - name: Verify the Windows signatures
+        if: steps.windows-signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = 'src-tauri/target/release'
+          $files = @(Get-Item "$release/clavix.exe") + @(Get-ChildItem "$release/bundle/nsis/*-setup.exe")
+          if ($files.Count -ne 2) {
+            Write-Host "::error::Expected clavix.exe and one -setup.exe, found $($files.Count) file(s)."
+            exit 1
+          }
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature -LiteralPath $f.FullName
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error::$($f.Name) is not validly signed: $($sig.Status) $($sig.StatusMessage)"
+              exit 1
+            }
+            if (-not $sig.TimeStamperCertificate) {
+              Write-Host "::error::$($f.Name) carries no timestamp: its signature would die with the certificate."
+              exit 1
+            }
+            Write-Host "OK $($f.Name) -- $($sig.SignerCertificate.Subject)"
+          }
+
+      # What tauri-action does on the other runners, for the NSIS installer
+      # only. The release normally exists by now, created by whichever of
+      # them finished first; it is created here only when this runner wins.
+      - name: Publish the signed NSIS installer
+        if: steps.windows-signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.value }}
+          BODY: ${{ steps.notes.outputs.body }}
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            # Losing a race against another runner's tauri-action is fine:
+            # the upload below then finds the release it created.
+            gh release create "$TAG" --verify-tag --title "Clavix $TAG" --notes "$BODY" || true
+          fi
+          gh release upload "$TAG" --clobber src-tauri/target/release/bundle/nsis/*-setup.exe
+
+      # The MSI holds the signed clavix.exe but is not signed itself yet.
+      # It goes to the "Sign the Windows MSI" job as a workflow artifact, and
+      # leaves the bundle directory so that the attestation below does not
+      # vouch for a file that is never published in this form.
+      - name: Hand the MSI over for signing
+        if: steps.windows-signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: clavix-windows-msi-unsigned
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+      - name: Remove the unsigned MSI from the bundle directory
+        if: steps.windows-signing.outputs.enabled == 'true'
+        shell: bash
+        run: rm src-tauri/target/release/bundle/msi/*.msi
 
       # Checks what a user's Mac will check, so a signing that silently fell
       # back to ad-hoc (or a notarization that was skipped) fails the release
@@ -283,6 +427,114 @@ jobs:
           # Short on purpose: this is a rescue copy to grab by hand right after
           # a failed publication, not an archive.
           retention-days: 7
+
+  # ssign signs PE files only, so the MSI takes another road: osslsigncode
+  # knows the MSI format, and ssign's PKCS#11 module lends it the same Certum
+  # cloud key. That pair is documented on Linux, hence a job of its own rather
+  # than more steps on the Windows runner. The steps are skipped when the
+  # Certum secrets are not set (forks), where tauri-action has already
+  # published an unsigned MSI.
+  sign-msi:
+    name: Sign the Windows MSI
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check for the Certum signing secrets
+        id: signing
+        env:
+          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
+          CERTUM_OTP: ${{ secrets.CERTUM_OTP }}
+        run: |
+          if [ -n "$CERTUM_EMAIL" ] && [ -n "$CERTUM_OTP" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Certum signing secrets set; nothing to sign."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the unsigned MSI
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: clavix-windows-msi-unsigned
+          path: unsigned
+
+      - name: Install osslsigncode
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends osslsigncode libengine-pkcs11-openssl
+
+      # Both pinned by checksum, like ssign.exe in the build job: the module
+      # sees the signing credentials, and the intermediate certificate is what
+      # links the signature to Certum's root.
+      - name: Install the ssign PKCS#11 module and the Certum intermediate
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SSIGN_VERSION: v0.1.11
+          MODULE_SHA256: a42c341a2fa2d6c7c6c18609b524de845be22fedd5e8f52ee0158f11777253e7
+          INTERMEDIATE_SHA256: 5ac82cbe9f28351e85d5262293bcfc8bacabead1294f248c1df17f81ce5ac3ce
+        run: |
+          mkdir -p "$RUNNER_TEMP/ssign"
+          cd "$RUNNER_TEMP/ssign"
+          gh release download "$SSIGN_VERSION" --repo Le-Syl21/ssign \
+            --pattern ssign-pkcs11-linux-x86_64.tar.gz
+          echo "$MODULE_SHA256  ssign-pkcs11-linux-x86_64.tar.gz" | sha256sum --check
+          tar -xzf ssign-pkcs11-linux-x86_64.tar.gz
+
+          # "Certum Code Signing 2021 CA", the issuer of the open source
+          # certificates, as shipped in the ssign repository.
+          gh api "repos/Le-Syl21/ssign/contents/ssign-core/src/certs/ccsca2021.der?ref=$SSIGN_VERSION" \
+            --jq .content | base64 --decode > ccsca2021.der
+          echo "$INTERMEDIATE_SHA256  ccsca2021.der" | sha256sum --check
+          openssl x509 -inform DER -in ccsca2021.der -out certum-code-signing-2021-ca.pem
+
+      - name: Sign the MSI
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
+          CERTUM_OTP: ${{ secrets.CERTUM_OTP }}
+        run: |
+          mkdir signed
+          count=0
+          for msi in unsigned/*.msi; do
+            osslsigncode sign \
+              -pkcs11module "$RUNNER_TEMP/ssign/libssign_pkcs11.so" \
+              -pkcs11cert 'pkcs11:type=cert' -key 'pkcs11:type=private' \
+              -ac "$RUNNER_TEMP/ssign/certum-code-signing-2021-ca.pem" \
+              -h sha256 -ts http://time.certum.pl/ \
+              -n "Clavix" -i "https://clavix.org" \
+              -in "$msi" -out "signed/$(basename "$msi")"
+            count=$((count + 1))
+          done
+          [ "$count" -eq 1 ] || { echo "::error::Expected one MSI, signed $count."; exit 1; }
+
+      # Chain and timestamp against the system trust store, which carries
+      # Certum's roots: a signature that only looks present fails here.
+      - name: Verify the MSI signature
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          osslsigncode verify \
+            -CAfile /etc/ssl/certs/ca-certificates.crt \
+            -TSA-CAfile /etc/ssl/certs/ca-certificates.crt \
+            -in signed/*.msi
+
+      - name: Attest build provenance
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: signed/*.msi
+
+      - name: Attach the signed MSI to the release
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: gh release upload "$TAG" signed/*.msi --clobber
 
   # The built web UI as its own release asset, so distribution packages can
   # compile only the Rust side: the frontend build needs prebuilt rolldown and
@@ -361,7 +613,9 @@ jobs:
   # fails on the notification step.
   notify:
     name: Notify Discord
-    needs: build
+    # sign-msi too, so the announcement does not go out before the MSI is on
+    # the release.
+    needs: [build, sign-msi]
     runs-on: ubuntu-latest
     if: success()
     steps:
