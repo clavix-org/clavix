@@ -5,6 +5,13 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.1](https://github.com/clavix-org/clavix/compare/v0.37.0...v0.37.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **deps:** bump cookie and url past two new advisories ([#550](https://github.com/clavix-org/clavix/issues/550)) ([9e9212c](https://github.com/clavix-org/clavix/commit/9e9212c27a6db6a590f4220ca6fe5ef3c39c8341))
+
 ## [0.37.0](https://github.com/clavix-org/clavix/compare/v0.36.0...v0.37.0) (2026-11-21)
 
 
