@@ -70,14 +70,15 @@ mod unix {
     use tauri::{AppHandle, Emitter, Manager};
 
     use super::EVENT_VAULT_CHANGED;
-    use crate::cli::{Reply, Request};
+    use crate::cli::{ItemKind, Reply, Request};
     use crate::cli_server::{
-        apply_changes, new_item_input, resolve_folder, resolve_item, with_field_key,
+        apply_changes, new_item_input, resolve_folder, resolve_item, ssh_comment, with_field_key,
         CliServerHandle, Handler, Scope,
     };
     use crate::commands::cipher;
+    use crate::commands::ssh::generate_ed25519_key;
     use crate::state::AppState;
-    use clavix_core::models::SyncResponse;
+    use clavix_core::models::{SshKeyInput, SyncResponse};
     use clavix_core::services::cipher::cipher_to_edit_input;
     use clavix_core::session::Session;
 
@@ -118,17 +119,38 @@ mod unix {
     async fn handle(app: &AppHandle, request: Request) -> Reply {
         // Not a sign of the user: see `session::unattended`.
         match crate::session::unattended(dispatch(app, request)).await {
-            Ok((id, action)) => {
+            Ok(done) => {
                 let changed = VaultChanged {
-                    id: id.clone(),
-                    action,
+                    id: done.id.clone(),
+                    action: done.action,
                 };
                 if let Err(e) = app.emit(EVENT_VAULT_CHANGED, changed) {
                     eprintln!("[clavix cli] could not notify the window: {e}");
                 }
-                Reply::done(id)
+                Reply {
+                    public_key: done.public_key,
+                    ..Reply::done(done.id)
+                }
             }
             Err(reason) => Reply::failed(reason),
+        }
+    }
+
+    /// What a request did, for the reply and for the window.
+    struct Done {
+        id: String,
+        action: &'static str,
+        /// Only after generating an SSH key.
+        public_key: Option<String>,
+    }
+
+    impl Done {
+        fn of(id: String, action: &'static str) -> Self {
+            Self {
+                id,
+                action,
+                public_key: None,
+            }
         }
     }
 
@@ -164,10 +186,11 @@ mod unix {
 
     /// Run one request. On success: the item's id and the name of what was
     /// done to it, for the window.
-    async fn dispatch(app: &AppHandle, request: Request) -> Result<(String, &'static str), String> {
+    async fn dispatch(app: &AppHandle, request: Request) -> Result<Done, String> {
         let failed = |e: clavix_core::error::Error| e.to_string();
         match request {
             Request::Create { item } => {
+                let mut public_key = None;
                 let input = {
                     let state = app.state::<AppState>();
                     let guard = state.session.lock();
@@ -176,12 +199,31 @@ mod unix {
                         Some(path) => resolve_folder(&vault.folders, &session.user_key, path)?,
                         None => None,
                     };
-                    new_item_input(item, folder_id)?
+                    // Generated here, in the app: the private key never
+                    // exists in the command-line process, and never
+                    // travels over the socket.
+                    let ssh_key = match item.kind {
+                        ItemKind::Ssh => {
+                            let key = generate_ed25519_key(ssh_comment(&item)).map_err(failed)?;
+                            public_key = Some(key.public_key.clone());
+                            Some(SshKeyInput {
+                                private_key: Some(key.private_key),
+                                public_key: Some(key.public_key),
+                                key_fingerprint: Some(key.key_fingerprint),
+                            })
+                        }
+                        _ => None,
+                    };
+                    new_item_input(item, folder_id, ssh_key)?
                 };
                 let id = cipher::create_cipher(app.state(), input)
                     .await
                     .map_err(failed)?;
-                Ok((id, "create"))
+                Ok(Done {
+                    id,
+                    action: "create",
+                    public_key,
+                })
             }
             Request::Edit { target, changes } => {
                 let (id, input) = {
@@ -221,35 +263,35 @@ mod unix {
                 cipher::update_cipher(app.state(), id.clone(), input)
                     .await
                     .map_err(failed)?;
-                Ok((id, "edit"))
+                Ok(Done::of(id, "edit"))
             }
             Request::Archive { target } => {
                 let id = find(app, &target, Scope::Live)?;
                 cipher::archive_cipher(app.state(), id.clone())
                     .await
                     .map_err(failed)?;
-                Ok((id, "archive"))
+                Ok(Done::of(id, "archive"))
             }
             Request::Unarchive { target } => {
                 let id = find(app, &target, Scope::Live)?;
                 cipher::unarchive_cipher(app.state(), id.clone())
                     .await
                     .map_err(failed)?;
-                Ok((id, "unarchive"))
+                Ok(Done::of(id, "unarchive"))
             }
             Request::Delete { target } => {
                 let id = find(app, &target, Scope::Live)?;
                 cipher::soft_delete_cipher(app.state(), id.clone())
                     .await
                     .map_err(failed)?;
-                Ok((id, "delete"))
+                Ok(Done::of(id, "delete"))
             }
             Request::Restore { target } => {
                 let id = find(app, &target, Scope::Trash)?;
                 cipher::restore_cipher(app.state(), id.clone())
                     .await
                     .map_err(failed)?;
-                Ok((id, "restore"))
+                Ok(Done::of(id, "restore"))
             }
         }
     }

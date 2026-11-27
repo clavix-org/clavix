@@ -22,7 +22,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::task::JoinHandle;
 
 use clavix_core::crypto::{decrypt_name, SymmetricKey};
-use clavix_core::models::{Cipher, CipherCreateInput, Folder, LoginInput};
+use clavix_core::models::{Cipher, CipherCreateInput, Folder, LoginInput, SshKeyInput};
 use clavix_core::services::cipher::{item_key, owning_key};
 
 use crate::cli::{Changes, Envelope, ItemKind, NewItem, Reply, Request, PROTOCOL_VERSION};
@@ -237,13 +237,31 @@ pub fn resolve_folder(
         .ok_or_else(|| format!("no folder \"{path}\": create it in Clavix first"))
 }
 
+/// The comment of a new SSH key: what was asked for, else the item's name,
+/// so the `authorized_keys` line on a server names the vault item it came
+/// from.
+pub fn ssh_comment(item: &NewItem) -> &str {
+    item.comment.as_deref().unwrap_or(&item.name).trim()
+}
+
+/// `ssh_key` is the freshly generated pair for an [`ItemKind::Ssh`] item,
+/// and `None` for every other kind.
 pub fn new_item_input(
     item: NewItem,
     folder_id: Option<String>,
+    ssh_key: Option<SshKeyInput>,
 ) -> Result<CipherCreateInput, String> {
     let name = item.name.trim().to_string();
     if name.is_empty() {
         return Err("the name cannot be empty".into());
+    }
+    if item.kind != ItemKind::Login
+        && (item.username.is_some() || item.password.is_some() || !item.uris.is_empty())
+    {
+        return Err("only a login has a username, a password or URLs".into());
+    }
+    if ssh_key.is_some() != (item.kind == ItemKind::Ssh) {
+        return Err("a key pair goes with an ssh item, and only with one".into());
     }
     let (cipher_type, login) = match item.kind {
         ItemKind::Login => (
@@ -255,12 +273,8 @@ pub fn new_item_input(
                 totp: None,
             }),
         ),
-        ItemKind::Note => {
-            if item.username.is_some() || item.password.is_some() || !item.uris.is_empty() {
-                return Err("a note has no username, password or URL".into());
-            }
-            (2, None)
-        }
+        ItemKind::Note => (2, None),
+        ItemKind::Ssh => (5, None),
     };
     Ok(CipherCreateInput {
         name,
@@ -270,7 +284,7 @@ pub fn new_item_input(
         login,
         card: None,
         identity: None,
-        ssh_key: None,
+        ssh_key,
         cipher_type,
         organization_id: None,
         collection_ids: Vec::new(),
@@ -438,8 +452,10 @@ mod tests {
                 notes: Some("note".into()),
                 folder: None,
                 favorite: true,
+                comment: None,
             },
             Some("f-1".into()),
+            None,
         )
         .unwrap();
         // What an existing item may carry and a change must not lose.
@@ -508,7 +524,9 @@ mod tests {
                 notes: Some("text".into()),
                 folder: None,
                 favorite: false,
+                comment: None,
             },
+            None,
             None,
         )
         .unwrap();
@@ -545,6 +563,55 @@ mod tests {
             None,
         )
         .is_err());
+    }
+
+    fn ssh_item(name: &str, comment: Option<&str>) -> NewItem {
+        NewItem {
+            kind: ItemKind::Ssh,
+            name: name.into(),
+            username: None,
+            password: None,
+            uris: Vec::new(),
+            notes: Some("where it is deployed".into()),
+            folder: None,
+            favorite: false,
+            comment: comment.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn an_ssh_item_takes_its_key_pair_and_nothing_else_does() {
+        let pair = || SshKeyInput {
+            private_key: Some("PRIVATE".into()),
+            public_key: Some("ssh-ed25519 AAAA deploy".into()),
+            key_fingerprint: Some("SHA256:x".into()),
+        };
+        let input = new_item_input(ssh_item(" deploy ", None), None, Some(pair())).unwrap();
+        assert_eq!(input.cipher_type, 5);
+        assert_eq!(input.name, "deploy");
+        assert_eq!(input.notes.as_deref(), Some("where it is deployed"));
+        assert!(input.login.is_none());
+        assert_eq!(
+            input.ssh_key.unwrap().public_key.as_deref(),
+            Some("ssh-ed25519 AAAA deploy")
+        );
+
+        // An ssh item without a key, or a key on something else.
+        assert!(new_item_input(ssh_item("deploy", None), None, None).is_err());
+        let mut note = ssh_item("memo", None);
+        note.kind = ItemKind::Note;
+        assert!(new_item_input(note, None, Some(pair())).is_err());
+        // Login fields are refused, as on a note.
+        let mut with_user = ssh_item("deploy", None);
+        with_user.username = Some("root".into());
+        assert!(new_item_input(with_user, None, Some(pair())).is_err());
+    }
+
+    #[test]
+    fn the_key_comment_defaults_to_the_item_name() {
+        assert_eq!(ssh_comment(&ssh_item(" deploy ", None)), "deploy");
+        assert_eq!(ssh_comment(&ssh_item("deploy", Some("gha job"))), "gha job");
+        assert_eq!(ssh_comment(&ssh_item("deploy", Some(""))), "");
     }
 
     fn echo_handler() -> Handler {

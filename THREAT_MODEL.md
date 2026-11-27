@@ -324,11 +324,11 @@ An internal review of the phone features was done before they were enabled by de
 
 Linux and macOS builds only, and off until the user turns it on in the preferences ("Allow changes from the command line"). While it is on, Clavix listens on a Unix socket next to the SSH agent's (`$XDG_RUNTIME_DIR/clavix/cli.sock`, or the app's own runtime directory under Flatpak), and `clavix item …`, the same binary started as a short-lived client, sends it one request per connection. The client holds no key and never authenticates to the server: every write is made by the running app through the commands the window uses.
 
-**What a request can do.** Create a login or a secure note in the personal vault; change the name, username, password, URLs, notes, folder or favourite flag of an existing item; archive, unarchive, move to the trash, restore.
+**What a request can do.** Create a login or a secure note in the personal vault; have the app generate an Ed25519 SSH key pair into a new item; change the name, username, password, URLs, notes, folder or favourite flag of an existing item; archive, unarchive, move to the trash, restore.
 
 **What no request can do.**
 
-- Read anything. The protocol has no read operation, and a reply carries an item id or an error message, never item content. The one thing it discloses beyond the id of the item acted on: when a *name* given by the caller matches several items, the error lists their ids. A caller can therefore learn whether an item of a given exact name exists, and how many.
+- Read anything. The protocol has no read operation, and a reply carries an item id or an error message, never stored item content. A reply to an SSH key creation also carries that key's public half, which the request itself just caused to exist; the private half is generated inside the app, stored in the vault, and never crosses the socket in either direction. The one thing it discloses beyond the id of the item acted on: when a *name* given by the caller matches several items, the error lists their ids. A caller can therefore learn whether an item of a given exact name exists, and how many.
 - Delete permanently. `delete` is the trash; emptying it stays in the window.
 - Edit an item that asks for the master password (reprompt). The window asks for the password before opening such an item in the editor; the command line cannot ask, so it refuses. It can still archive or trash it, both reversible.
 - Work while the vault is locked, or on a standalone (read-only) session. The socket answers with the reason.
@@ -338,7 +338,7 @@ Linux and macOS builds only, and off until the user turns it on in the preferenc
 
 | Who | What they get |
 | --- | --- |
-| A process running as the user, option on, vault unlocked | Can add items, overwrite fields of items whose id or exact name it knows, and archive or trash them. Overwritten passwords go to the item's password history (last five) and trashed items stay in the trash, so the damage is recoverable, but it is damage: a changed URL or a swapped password is not announced beyond the window refreshing. It cannot read a secret through this channel. |
+| A process running as the user, option on, vault unlocked | Can add items, overwrite fields of items whose id or exact name it knows, and archive or trash them. Overwritten passwords go to the item's password history (last five) and trashed items stay in the trash, so the damage is recoverable, but it is damage: a changed URL or a swapped password is not announced beyond the window refreshing. It can also add SSH keys of its own making: it never holds their private half, but they are offered by the agent after its next start like any other key in the vault, under the agent's confirmation policy. It cannot read a secret through this channel. |
 | The same process, option off (the default) | Nothing: there is no socket. |
 | Another user on the machine | Nothing: directory and socket permissions, then the peer uid check. |
 
