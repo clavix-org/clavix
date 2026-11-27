@@ -546,3 +546,173 @@ async fn archive_and_unarchive_round_trip() {
         .await
         .expect("clean up");
 }
+
+/// A login can hold more than Clavix shows: passkeys saved by a browser
+/// extension, a per-URL match rule, the autofill flag, the date of the
+/// last password change. The cipher PUT replaces the server's copy, so
+/// the first edit made here used to delete every one of them — a passkey
+/// gone for good because someone fixed a typo in the username.
+///
+/// Create a login carrying all four the way another client would, edit it
+/// the way the editor does, and read back what the server kept.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "needs the seeded Vaultwarden container"]
+async fn a_passkey_and_the_url_rules_survive_an_edit() {
+    use clavix_core::crypto::decrypt_name;
+    use clavix_core::services::cipher::build_update_cipher_body;
+
+    let session = login().await;
+    let enc = |s: &str| encrypt_string(s, &session.user_key).expect("encrypt");
+
+    let mut input = CipherCreateInput {
+        name: "Passkey round trip".into(),
+        login: Some(LoginInput {
+            username: Some("someone".into()),
+            password: Some("first-password".into()),
+            uris: vec![
+                "https://login.example.org".into(),
+                "https://other.example.org".into(),
+            ],
+            totp: None,
+        }),
+        card: None,
+        identity: None,
+        ssh_key: None,
+        cipher_type: 1,
+        folder_id: None,
+        favorite: false,
+        notes: None,
+        organization_id: None,
+        collection_ids: vec![],
+        fields: vec![],
+        reprompt: false,
+    };
+
+    // What Clavix itself never writes on create, added by hand: this
+    // stands in for the browser extension that saved the passkey.
+    let mut body =
+        build_cipher_body(&input, &session.user_key, &session.user_id).expect("create body");
+    let login_body = body["login"].as_object_mut().expect("login");
+    login_body.insert(
+        "fido2Credentials".into(),
+        serde_json::json!([{
+            "credentialId": enc("b64.credential-id"),
+            "keyType": enc("public-key"),
+            "keyAlgorithm": enc("ECDSA"),
+            "keyCurve": enc("P-256"),
+            "keyValue": enc("b64.private-key-material"),
+            "rpId": enc("example.org"),
+            "rpName": enc("Example"),
+            "userHandle": enc("b64.user-handle"),
+            "userName": enc("someone"),
+            "userDisplayName": enc("Some One"),
+            "counter": enc("0"),
+            "discoverable": enc("true"),
+            "creationDate": "2026-01-02T03:04:05.000Z",
+        }]),
+    );
+    login_body.insert("autofillOnPageLoad".into(), serde_json::json!(true));
+    login_body.insert(
+        "passwordRevisionDate".into(),
+        serde_json::json!("2026-01-02T03:04:05.000Z"),
+    );
+    // "Exact" on the first URL, the account default on the second.
+    login_body["uris"][0]["match"] = serde_json::json!(3);
+
+    let created = session
+        .client
+        .create_cipher(&session.access_token, &body)
+        .await
+        .expect("create cipher");
+    let stored = created.login.as_ref().expect("login stored");
+    assert_eq!(
+        stored.fido2_credentials.as_deref().map(<[_]>::len),
+        Some(1),
+        "the server stored the passkey, and Clavix reads it"
+    );
+    assert_eq!(stored.uris.as_deref().expect("uris")[0].match_type, Some(3));
+
+    // An edit that has nothing to do with any of it: a new username, and
+    // the two URLs given in the other order.
+    {
+        let login = input.login.as_mut().expect("login");
+        login.username = Some("someone-else".into());
+        login.uris.reverse();
+    }
+    let body = build_update_cipher_body(
+        &input,
+        &session.user_key,
+        &session.user_id,
+        &created,
+        "2026-08-03T10:00:00.000Z",
+    )
+    .expect("update body");
+    let updated = session
+        .client
+        .update_cipher(&session.access_token, &created.id, &body)
+        .await
+        .expect("update cipher");
+    let login = updated.login.as_ref().expect("login");
+
+    let passkeys = login
+        .fido2_credentials
+        .as_deref()
+        .expect("the passkey survived the edit");
+    assert_eq!(passkeys.len(), 1);
+    assert_eq!(
+        decrypt_name(
+            passkeys[0]["keyValue"].as_str().expect("keyValue"),
+            &session.user_key
+        )
+        .expect("the passkey is still readable"),
+        "b64.private-key-material"
+    );
+    assert_eq!(passkeys[0]["creationDate"], "2026-01-02T03:04:05.000Z");
+    assert_eq!(login.autofill_on_page_load, Some(true));
+    assert_eq!(
+        login.password_revision_date.as_deref().map(|d| &d[..10]),
+        Some("2026-01-02"),
+        "the password did not change, so neither did its date"
+    );
+    // The rule follows its URL, not its position.
+    let uris = login.uris.as_deref().expect("uris");
+    let rule_of = |wanted: &str| {
+        uris.iter()
+            .find(|u| {
+                decrypt_name(u.uri.as_deref().expect("uri"), &session.user_key).expect("decrypt")
+                    == wanted
+            })
+            .expect("url kept")
+            .match_type
+    };
+    assert_eq!(rule_of("https://login.example.org"), Some(3));
+    assert_eq!(rule_of("https://other.example.org"), None);
+
+    // A password change is the one edit that moves the date.
+    input.login.as_mut().expect("login").password = Some("second-password".into());
+    let body = build_update_cipher_body(
+        &input,
+        &session.user_key,
+        &session.user_id,
+        &updated,
+        "2026-08-03T10:00:00.000Z",
+    )
+    .expect("update body");
+    let rotated = session
+        .client
+        .update_cipher(&session.access_token, &created.id, &body)
+        .await
+        .expect("update cipher");
+    let login = rotated.login.as_ref().expect("login");
+    assert_eq!(
+        login.password_revision_date.as_deref().map(|d| &d[..10]),
+        Some("2026-08-03")
+    );
+    assert_eq!(login.fido2_credentials.as_deref().map(<[_]>::len), Some(1));
+
+    session
+        .client
+        .delete_cipher(&session.access_token, &created.id)
+        .await
+        .expect("clean up");
+}

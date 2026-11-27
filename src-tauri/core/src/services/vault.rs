@@ -284,8 +284,10 @@ mod tests {
                 uris: uri.map(|u| {
                     vec![CipherLoginUri {
                         uri: Some(encrypt_string(u, key).unwrap()),
+                        ..Default::default()
                     }]
                 }),
+                ..Default::default()
             }),
             card: None,
             identity: None,
@@ -757,14 +759,20 @@ mod tests {
             password: None,
             totp: None,
             uris: Some(vec![
-                CipherLoginUri { uri: None },
+                CipherLoginUri {
+                    uri: None,
+                    ..Default::default()
+                },
                 CipherLoginUri {
                     uri: Some(encrypt_string("https://second.example", &uk).unwrap()),
+                    ..Default::default()
                 },
                 CipherLoginUri {
                     uri: Some(encrypt_string("https://third.example", &uk).unwrap()),
+                    ..Default::default()
                 },
             ]),
+            ..Default::default()
         });
 
         let resp = response_with(vec![], vec![], vec![c], vec![]);

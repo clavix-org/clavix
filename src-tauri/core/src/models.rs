@@ -393,7 +393,7 @@ pub struct CipherSshKey {
     pub key_fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CipherLogin {
     #[serde(default)]
@@ -404,13 +404,33 @@ pub struct CipherLogin {
     pub uris: Option<Vec<CipherLoginUri>>,
     #[serde(default)]
     pub totp: Option<String>,
+    // The three below are things Clavix does not show or edit, modelled
+    // for one reason: a cipher write replaces the server's copy, so what
+    // is not read here cannot be sent back and is deleted by the first
+    // edit. Passkeys were lost that way.
+    /// Passkeys saved in this login by another client, as the server sent
+    /// them. Kept opaque: each one is a map of EncStrings (plus a plain
+    /// `creationDate`) that Clavix never decrypts, only carries.
+    #[serde(default)]
+    pub fido2_credentials: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub autofill_on_page_load: Option<bool>,
+    /// When the password last changed. Maintained by the client, not the
+    /// server: see `build_update_cipher_body`.
+    #[serde(default)]
+    pub password_revision_date: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CipherLoginUri {
     #[serde(default)]
     pub uri: Option<String>,
+    /// How a browser extension matches this URL (0 base domain, 1 host,
+    /// 2 starts with, 3 exact, 4 regular expression, 5 never); `None` for
+    /// the account default. Carried across writes like the fields above.
+    #[serde(default, rename = "match")]
+    pub match_type: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
