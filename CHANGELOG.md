@@ -5,6 +5,18 @@ All notable changes to Clavix are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0](https://github.com/clavix-org/clavix/compare/v0.37.1...v0.38.0) (2026-11-27)
+
+
+### Features
+
+* **cli:** change vault items from a terminal ([#554](https://github.com/clavix-org/clavix/issues/554)) ([25c9a98](https://github.com/clavix-org/clavix/commit/25c9a9890ca8cf921e102daf6ccfd25f4d0c5d50))
+
+
+### Bug Fixes
+
+* **vault:** keep passkeys and URL rules when an item is edited ([#555](https://github.com/clavix-org/clavix/issues/555)) ([58c617d](https://github.com/clavix-org/clavix/commit/58c617d37c2ecd5e826b3a75b2b1ba793a6605d9))
+
 ## [0.37.1](https://github.com/clavix-org/clavix/compare/v0.37.0...v0.37.1) (2026-11-25)
 
 
