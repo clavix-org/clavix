@@ -274,11 +274,13 @@ fn reencrypt_cipher(
                                 .map(|u| {
                                     Ok(CipherLoginUri {
                                         uri: reenc_opt(u.uri.as_deref())?,
+                                        ..Default::default()
                                     })
                                 })
                                 .collect::<Result<Vec<_>>>()
                         })
                         .transpose()?,
+                    ..Default::default()
                 })
             })
             .transpose()?,
@@ -583,7 +585,9 @@ mod tests {
                 totp: Some(e("JBSWY3DPEHPK3PXP")),
                 uris: Some(vec![CipherLoginUri {
                     uri: Some(e("https://example.test")),
+                    ..Default::default()
                 }]),
+                ..Default::default()
             }),
             card: (kind == CipherType::Card).then(|| CipherCard {
                 cardholder_name: Some(e("Alice")),
