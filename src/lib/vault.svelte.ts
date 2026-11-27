@@ -275,6 +275,26 @@ export class VaultController {
     void this.sync(opts);
   }
 
+  /**
+   * An item was changed from outside the window (the `clavix item …`
+   * command line): show it now rather than at the next periodic sync.
+   *
+   * The change is already on the server and in the Rust vault, so a
+   * quiet sync is all the list needs. The detail panel is the other
+   * place that can be stale: it is reloaded if it shows that item, and
+   * closed if the item just left the list being looked at.
+   */
+  async applyExternalChange(id: string, action: string) {
+    if (!this.summary) return;
+    await this.sync({ quiet: true });
+    if (this.detail?.id !== id) return;
+    if (action === "delete" || action === "archive") {
+      this.closeDetail();
+    } else {
+      await this.openCipher(id);
+    }
+  }
+
   // Navigation keeps the search box intact: the query narrows *within*
   // whatever folder / quick filter is active, so browsing around while
   // hunting for an item no longer means retyping the query at every

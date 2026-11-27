@@ -134,6 +134,43 @@ destruction.
 
 ---
 
+## Changing items from a terminal
+
+On Linux and macOS, `clavix item …` creates and changes items in the vault that is open in the running Clavix. It is the same binary, acting as a client of the app: it never asks for the master password, holds no key, and what it changes shows up in the window at once.
+
+Turn it on first: **Preferences > Security > Command line**. It is off by default.
+
+```bash
+# Create a login; the new item's id is printed.
+pwgen -s 24 1 | clavix item create --name example.org \
+    --username me --uri https://example.org --folder work --password-stdin
+
+clavix item create --type note --name "Wi-Fi guests" --notes "code on the fridge"
+
+# Generate an Ed25519 key pair. The private key goes into the item and is
+# never shown; the public key is printed, ready for authorized_keys.
+clavix item create --type ssh --name deploy-example \
+    --notes "CI deploy key: repo example, secret DEPLOY_SSH_KEY, host web1"
+
+# <item> is an id, or the exact name of exactly one item.
+clavix item edit example.org --username other --favorite
+clavix item edit example.org --password-stdin < new-password.txt
+clavix item archive example.org
+clavix item delete example.org      # to the trash
+clavix item restore example.org
+```
+
+`clavix item --help` lists every option. A few deliberate limits:
+
+- **Write-only.** No command reads an item back: nothing prints a password, a private key, a note or a list of items. The one thing printed is the public half of an SSH key the command just generated. Copying the private key out (into a CI secret, say) is done from the window.
+- **No password on the command line.** It is read from standard input (`--password-stdin`), never from an argument, which other processes and the shell history would see.
+- **Logins, notes and generated SSH keys** for now, in the personal vault; folders must already exist. A generated key takes the item name as its comment unless `--comment` says otherwise, and, like every SSH key in the vault, it is offered by the SSH agent the next time the agent starts.
+- **Items that ask for the master password** can be trashed or archived, but not edited: the window asks for the password first, and a terminal has no way to.
+- **`delete` is the trash**, never a permanent deletion.
+- Clavix must be **running and unlocked**. A request does not count as activity for the auto-lock.
+
+Under Flatpak the command is `flatpak run org.clavix.Clavix item …`. See `THREAT_MODEL.md` ("Command-Line Access") for what turning this on exposes.
+
 ## Using the SSH agent persistently
 
 ### Linux / macOS

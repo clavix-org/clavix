@@ -21,6 +21,7 @@ const SSH_AGENT_AUTOSTART_STORAGE_KEY = "clavix.sshAgentAutoStart";
 const PHONE_APPROVAL_STORAGE_KEY = "clavix.phoneApproval";
 const BLUR_NOTES_STORAGE_KEY = "clavix.blurNotes";
 const SEARCH_NOTES_STORAGE_KEY = "clavix.searchNotes";
+const CLI_ACCESS_STORAGE_KEY = "clavix.cliAccess";
 const TOOLBAR_ALIGN_STORAGE_KEY = "clavix.toolbarAlign";
 const AUTO_SYNC_STORAGE_KEY = "clavix.autoSyncMinutes";
 
@@ -135,6 +136,11 @@ export class PrefsController {
       off. The backend applies it (`api.setSearchNotes`) because the
       notes only reach the list when it says so — see `VaultController`. */
   searchNotes = $state<boolean>(true);
+  /** Whether `clavix item …` may change the vault from a terminal. Off
+      unless explicitly "true": it opens a socket other programs of this
+      user can write to the vault through. The backend owns the socket
+      (`api.setCliAccess`); the page pushes this value on start. */
+  cliAccess = $state<boolean>(false);
   toolbarAlign = $state<ToolbarAlign>(TOOLBAR_ALIGN_DEFAULT);
   autoSyncMinutes = $state<number>(AUTO_SYNC_DEFAULT_MINUTES);
 
@@ -251,6 +257,7 @@ export class PrefsController {
       this.phoneApproval = parsePhoneApproval(localStorage.getItem(PHONE_APPROVAL_STORAGE_KEY));
       this.blurNotes = localStorage.getItem(BLUR_NOTES_STORAGE_KEY) !== "false";
       this.searchNotes = localStorage.getItem(SEARCH_NOTES_STORAGE_KEY) !== "false";
+      this.cliAccess = localStorage.getItem(CLI_ACCESS_STORAGE_KEY) === "true";
       const savedAlign = localStorage.getItem(TOOLBAR_ALIGN_STORAGE_KEY);
       if (savedAlign === "left" || savedAlign === "center") {
         this.toolbarAlign = savedAlign;
@@ -319,6 +326,15 @@ export class PrefsController {
     this.searchNotes = value;
     try {
       localStorage.setItem(SEARCH_NOTES_STORAGE_KEY, String(value));
+    } catch {
+      // best-effort
+    }
+  }
+
+  setCliAccess(value: boolean) {
+    this.cliAccess = value;
+    try {
+      localStorage.setItem(CLI_ACCESS_STORAGE_KEY, String(value));
     } catch {
       // best-effort
     }

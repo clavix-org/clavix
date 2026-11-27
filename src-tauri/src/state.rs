@@ -95,6 +95,12 @@ pub struct AppState {
     /// `ssh_agent_status` explain a key count that looks short, instead of
     /// the explanation being visible only in the `start_ssh_agent` reply.
     pub ssh_skipped: Mutex<Vec<crate::commands::ssh::SkippedKey>>,
+    /// The socket `clavix item …` talks to, while "command-line access"
+    /// is on in the preferences. `None` otherwise, which is the default:
+    /// the renderer pushes the stored preference on bootstrap through
+    /// `commands::cli::set_cli_access`.
+    #[cfg(unix)]
+    pub cli_server: Mutex<Option<crate::cli_server::CliServerHandle>>,
     /// Last user-driven activity (command invocation that touches the
     /// session). Updated by `mark_activity`. Backs the auto-lock watchdog
     /// spawned in `run()` — backend safety net so a frozen WebView or a
@@ -174,6 +180,8 @@ impl Default for AppState {
             phone_approver: Mutex::new(std::sync::Arc::new(crate::phone_approval::NoPhone)),
             phone_options: Mutex::new(Default::default()),
             ssh_skipped: Mutex::new(Vec::new()),
+            #[cfg(unix)]
+            cli_server: Mutex::new(None),
             last_activity: Mutex::new(Instant::now()),
             auto_lock: Mutex::new(AutoLockSetting::default()),
             screen_locked_since: Mutex::new(None),

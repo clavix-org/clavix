@@ -797,12 +797,30 @@ pub fn decrypt_ssh_private_key(
 /// users with infra that requires RSA can paste an existing key.
 #[tauri::command]
 pub fn generate_ssh_key() -> Result<DecryptedSshKey> {
+    generate_ed25519_key("")
+}
+
+/// The generation behind [`generate_ssh_key`], with the key's comment:
+/// the free text that ends an `authorized_keys` line and says, on the
+/// server, which key this is. Empty for none. The command line sets one
+/// (`clavix item create --type ssh`); the editor does not.
+///
+/// The comment ends up on a line of a file that grants logins, so a line
+/// break in it would start a second entry. Refused here rather than left
+/// to each caller.
+pub fn generate_ed25519_key(comment: &str) -> Result<DecryptedSshKey> {
     use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 
+    if comment.chars().any(char::is_control) {
+        return Err(Error::Crypto {
+            reason: "an ssh key comment cannot contain control characters".into(),
+        });
+    }
     let mut rng = rand::thread_rng();
-    let pk = PrivateKey::random(&mut rng, Algorithm::Ed25519).map_err(|e| Error::Crypto {
+    let mut pk = PrivateKey::random(&mut rng, Algorithm::Ed25519).map_err(|e| Error::Crypto {
         reason: format!("generate ed25519 ssh key: {e}"),
     })?;
+    pk.set_comment(comment);
 
     let private_pem = pk
         .to_openssh(LineEnding::LF)
@@ -820,6 +838,37 @@ pub fn generate_ssh_key() -> Result<DecryptedSshKey> {
         public_key: public_pem,
         key_fingerprint: fingerprint,
     })
+}
+
+#[cfg(test)]
+mod generate_comment_tests {
+    use super::*;
+
+    #[test]
+    fn a_generated_key_carries_its_comment_in_both_halves() {
+        let key = generate_ed25519_key("deploy example").unwrap();
+        assert!(key.public_key.starts_with("ssh-ed25519 "));
+        assert!(key.public_key.ends_with(" deploy example"));
+        assert!(key.key_fingerprint.starts_with("SHA256:"));
+        // The private half parses back to the same key, comment included:
+        // this is what `ssh-keygen -y` would print from it.
+        let parsed = ssh_key::PrivateKey::from_openssh(&key.private_key).unwrap();
+        assert_eq!(parsed.comment(), "deploy example");
+        assert_eq!(parsed.public_key().to_openssh().unwrap(), key.public_key);
+        assert!(!parsed.is_encrypted());
+    }
+
+    #[test]
+    fn without_a_comment_the_public_line_is_bare() {
+        let key = generate_ed25519_key("").unwrap();
+        assert_eq!(key.public_key.split(' ').count(), 2);
+    }
+
+    #[test]
+    fn a_comment_cannot_start_a_second_authorized_keys_line() {
+        assert!(generate_ed25519_key("ok\nssh-ed25519 AAAA attacker").is_err());
+        assert!(generate_ed25519_key("tab\there").is_err());
+    }
 }
 
 #[cfg(test)]

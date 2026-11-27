@@ -421,12 +421,37 @@ fn rewrap_passkey(
 /// Fields that fail to decrypt come back as `None` rather than failing
 /// the whole conversion — one unreadable field must not block the copy.
 pub fn cipher_to_create_input(cipher: &Cipher, key: &SymmetricKey) -> Result<CipherCreateInput> {
+    decrypt_to_input(cipher, key).map(|(input, _)| input)
+}
+
+/// Same conversion, for writing the item back *over itself*.
+///
+/// A field that fails to decrypt is an inconvenience in a copy and a loss
+/// in an edit: the PUT has replace semantics, so a field that came back
+/// `None` here would be erased on the server. Refuse instead.
+pub fn cipher_to_edit_input(cipher: &Cipher, key: &SymmetricKey) -> Result<CipherCreateInput> {
+    match decrypt_to_input(cipher, key)? {
+        (input, false) => Ok(input),
+        (_, true) => Err(Error::Crypto {
+            reason: "a field of this item cannot be decrypted, and saving the item would erase it"
+                .into(),
+        }),
+    }
+}
+
+/// The input, and whether any field was dropped for failing to decrypt.
+fn decrypt_to_input(cipher: &Cipher, key: &SymmetricKey) -> Result<(CipherCreateInput, bool)> {
+    let unreadable = std::cell::Cell::new(false);
     let dec = |s: Option<&str>| -> Option<String> {
-        s.and_then(|v| decrypt_name(v, key).ok())
-            .filter(|v| !v.is_empty())
+        s.and_then(|v| {
+            decrypt_name(v, key)
+                .inspect_err(|_| unreadable.set(true))
+                .ok()
+        })
+        .filter(|v| !v.is_empty())
     };
 
-    Ok(CipherCreateInput {
+    let input = CipherCreateInput {
         name: decrypt_name(&cipher.name, key)?,
         folder_id: cipher.folder_id.clone(),
         favorite: cipher.favorite,
@@ -492,7 +517,8 @@ pub fn cipher_to_create_input(cipher: &Cipher, key: &SymmetricKey) -> Result<Cip
             })
             .collect(),
         reprompt: cipher.reprompt.unwrap_or(0) != 0,
-    })
+    };
+    Ok((input, unreadable.get()))
 }
 
 /// Validates that a cipher can be moved into the given organisation
@@ -1784,6 +1810,22 @@ mod tests {
         let input = cipher_to_create_input(&cipher, &key).unwrap();
         assert_eq!(input.notes, None);
         assert_eq!(input.login.unwrap().password.as_deref(), Some("hunter2"));
+    }
+
+    #[test]
+    fn edit_input_refuses_a_field_it_cannot_decrypt() {
+        // Same unreadable note, but this input goes back over the item:
+        // the PUT would erase the note, so there must be no input at all.
+        let key = test_key();
+        let stranger = other_test_key();
+        let mut cipher = login_cipher_with_password(&key, "hunter2");
+        assert!(cipher_to_edit_input(&cipher, &key).is_ok());
+
+        cipher.notes = Some(encrypt_string("unreadable", &stranger).unwrap());
+        assert!(matches!(
+            cipher_to_edit_input(&cipher, &key),
+            Err(Error::Crypto { .. })
+        ));
     }
 
     // ============ what the editor does not know about ============

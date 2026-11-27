@@ -5,6 +5,11 @@
 mod auto_lock;
 #[cfg(target_os = "linux")]
 mod background_portal;
+// The `clavix item …` command line: `cli` is the client (and what `main`
+// calls first), `cli_server` the socket the running app answers it on.
+pub mod cli;
+#[cfg(unix)]
+mod cli_server;
 mod commands;
 #[cfg(target_os = "linux")]
 mod dbus;
@@ -223,6 +228,8 @@ pub fn run() {
             commands::cipher::reveal_login_totp,
             commands::cipher::create_login_cipher,
             commands::cipher::update_login_cipher,
+            commands::cli::cli_access_available,
+            commands::cli::set_cli_access,
             commands::clipboard::clipboard_write,
             commands::clipboard::clipboard_clear_if_ours,
             commands::cipher::create_cipher,

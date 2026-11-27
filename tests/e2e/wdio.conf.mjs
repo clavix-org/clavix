@@ -13,7 +13,9 @@ const projectRoot = resolve(here, "../..");
 // against — release builds take much longer to compile and are reserved
 // for the CSP/regression smoke job.
 const buildProfile = process.env.E2E_BUILD_PROFILE === "release" ? "release" : "debug";
-const app = resolve(projectRoot, `src-tauri/target/${buildProfile}/clavix`);
+// Exported for the spec that runs the binary a second time, as the
+// `clavix item …` command line (cli.spec.mjs).
+export const app = resolve(projectRoot, `src-tauri/target/${buildProfile}/clavix`);
 const tauriDriverBin = resolve(homedir(), ".cargo/bin/tauri-driver");
 const composeFile = resolve(here, "docker-compose.yml");
 
@@ -45,7 +47,7 @@ export const sandboxHome = resolve(sandboxDataHome, "home");
 // running. Outside the data sandbox, under the system's temporary
 // directory: a Unix socket path holds about a hundred bytes, which a
 // deep checkout would exceed.
-const sandboxRuntimeDir = resolve(tmpdir(), `clavix-e2e-run-${userInfo().uid}`);
+export const sandboxRuntimeDir = resolve(tmpdir(), `clavix-e2e-run-${userInfo().uid}`);
 // The session bus is found through the runtime directory when no address
 // is given: keep pointing at the real one, so that what talks to the
 // desktop (the screen-lock probe) behaves as before.

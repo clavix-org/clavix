@@ -93,6 +93,7 @@ UI tests.
 | `bulk-selection.spec.mjs` | Ctrl-click selection → bulk trash through the confirmation; a plain click drops the selection |
 | `attachments.spec.mjs`   | Pick a file → upload → download → byte-for-byte compare; delete after confirmation |
 | `reprompt.spec.mjs`      | Wrong master password reveals nothing; dismissal reveals nothing; the row menu is gated too |
+| `cli.spec.mjs`           | `clavix item …` run as a second process: off by default; create (logins, generated SSH keys) / edit / trash / restore reach the server and the list follows without a sync; reprompt items and a locked vault are refused |
 | `phone-only.spec.mjs`    | No vault: choose "phone only", pair a stand-in phone, sign a login through the agent; restart, and the agent is back with nothing to unlock |
 
 `phone-only.spec.mjs` needs no Vaultwarden. It starts the reference
