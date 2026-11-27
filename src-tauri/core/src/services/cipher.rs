@@ -1,11 +1,11 @@
 use crate::crypto::{
     decrypt_cipher_key, decrypt_name, encrypt_cipher_key, encrypt_string, reencrypt_with_key,
-    SymmetricKey,
+    EncString, SymmetricKey,
 };
 use crate::error::{Error, Result};
 use crate::models::{
-    CardInput, Cipher, CipherCreateInput, CipherType, CustomFieldInput, IdentityInput, LoginInput,
-    SshKeyInput,
+    CardInput, Cipher, CipherCreateInput, CipherLogin, CipherType, CustomFieldInput, IdentityInput,
+    LoginInput, SshKeyInput,
 };
 use std::collections::HashMap;
 
@@ -58,12 +58,19 @@ fn enc_opt_raw(s: Option<&str>, key: &SymmetricKey) -> Result<Option<String>> {
         .transpose()
 }
 
-fn encrypt_login(login: &LoginInput, key: &SymmetricKey) -> Result<serde_json::Value> {
-    let uris_val: Vec<serde_json::Value> = login
+/// The URLs of a login as they are written: trimmed, blanks dropped. One
+/// definition, because `carry_login_extras` pairs the written URLs back
+/// with these by position.
+fn written_uris(login: &LoginInput) -> impl Iterator<Item = &str> {
+    login
         .uris
         .iter()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
+}
+
+fn encrypt_login(login: &LoginInput, key: &SymmetricKey) -> Result<serde_json::Value> {
+    let uris_val: Vec<serde_json::Value> = written_uris(login)
         .map(|u| -> Result<serde_json::Value> {
             Ok(serde_json::json!({
                 "uri": encrypt_string(u, key)?,
@@ -266,6 +273,7 @@ pub fn build_update_cipher_body(
         })
         .collect();
 
+    let mut password_changed = false;
     let previous = existing.login.as_ref().and_then(|l| l.password.as_deref());
     if let Some(previous_enc) = previous {
         let previous_plain = decrypt_name(previous_enc, key).ok();
@@ -281,12 +289,21 @@ pub fn build_update_cipher_body(
         // recorded blind.
         if let Some(old) = previous_plain.filter(|p| !p.is_empty()) {
             if next_plain != Some(old.as_str()) {
+                password_changed = true;
                 history.insert(
                     0,
                     serde_json::json!({ "password": previous_enc, "lastUsedDate": now }),
                 );
             }
         }
+    } else if input
+        .login
+        .as_ref()
+        .and_then(|l| l.password.as_deref())
+        .is_some_and(|p| !p.is_empty())
+    {
+        // A first password is a change too, with nothing for the history.
+        password_changed = true;
     }
 
     // Bitwarden's own cap; keeps a decade of rotations from growing the
@@ -304,7 +321,90 @@ pub fn build_update_cipher_body(
         "archivedDate".into(),
         serde_json::json!(existing.archived_date),
     );
+    if let (Some(stored), Some(written), Some(login)) = (
+        existing.login.as_ref(),
+        input.login.as_ref(),
+        obj.get_mut("login").and_then(|l| l.as_object_mut()),
+    ) {
+        carry_login_extras(login, stored, written, key, password_changed.then_some(now));
+    }
     Ok(body)
+}
+
+/// Put back into a login being written what the stored one holds and the
+/// editor knows nothing about: passkeys, the autofill flag, the date of
+/// the last password change and each URL's match rule.
+///
+/// Same replace semantics as the history above, and a worse loss: a
+/// passkey saved by a browser extension was deleted by the first edit of
+/// the item made here, whatever the edit was. Everything is echoed as
+/// stored: `key` is the key the item's fields are already under, so the
+/// passkeys need no re-encryption and are never decrypted.
+///
+/// `password_changed_at` is `Some(now)` when this write changes the
+/// password: the revision date is the client's to maintain.
+fn carry_login_extras(
+    login: &mut serde_json::Map<String, serde_json::Value>,
+    stored: &CipherLogin,
+    written: &LoginInput,
+    key: &SymmetricKey,
+    password_changed_at: Option<&str>,
+) {
+    if let Some(passkeys) = &stored.fido2_credentials {
+        login.insert("fido2Credentials".into(), serde_json::json!(passkeys));
+    }
+    login.insert(
+        "autofillOnPageLoad".into(),
+        serde_json::json!(stored.autofill_on_page_load),
+    );
+    login.insert(
+        "passwordRevisionDate".into(),
+        serde_json::json!(password_changed_at.or(stored.password_revision_date.as_deref())),
+    );
+
+    // A rule belongs to its URL, not to its row: the editor may reorder,
+    // remove or add URLs. A URL that was edited is a new URL and gets the
+    // default rule, as it would in any other client.
+    let rules: Vec<(String, i32)> = stored
+        .uris
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|u| {
+            let plain = decrypt_name(u.uri.as_deref()?, key).ok()?;
+            Some((plain, u.match_type?))
+        })
+        .collect();
+    if let Some(uris) = login.get_mut("uris").and_then(|u| u.as_array_mut()) {
+        for (uri, plain) in uris.iter_mut().zip(written_uris(written)) {
+            if let Some((_, rule)) = rules.iter().find(|(stored, _)| stored == plain) {
+                uri["match"] = serde_json::json!(rule);
+            }
+        }
+    }
+}
+
+/// A passkey moved to another key: every EncString in it re-encrypted,
+/// everything else (`creationDate`, and whatever a later protocol version
+/// adds in clear) left as it is.
+fn rewrap_passkey(
+    passkey: &serde_json::Value,
+    reenc: &impl Fn(&str) -> Result<String>,
+) -> Result<serde_json::Value> {
+    let Some(fields) = passkey.as_object() else {
+        return Ok(passkey.clone());
+    };
+    fields
+        .iter()
+        .map(|(name, value)| {
+            let value = match value.as_str() {
+                Some(text) if EncString::parse(text).is_ok() => serde_json::json!(reenc(text)?),
+                _ => value.clone(),
+            };
+            Ok((name.clone(), value))
+        })
+        .collect::<Result<serde_json::Map<_, _>>>()
+        .map(serde_json::Value::Object)
 }
 
 /// Decrypt a stored cipher back into the input shape a write takes.
@@ -482,17 +582,36 @@ pub fn build_share_cipher_body(
                 .as_deref()
                 .unwrap_or(&[])
                 .iter()
-                .filter_map(|u| u.uri.as_deref().map(reenc))
-                .collect::<Result<Vec<_>>>()?
-                .into_iter()
-                .map(|uri| serde_json::json!({ "uri": uri, "match": serde_json::Value::Null }))
-                .collect();
-            Ok(serde_json::json!({
+                .filter_map(|u| Some((u.uri.as_deref()?, u.match_type)))
+                .map(|(uri, rule)| -> Result<serde_json::Value> {
+                    Ok(serde_json::json!({ "uri": reenc(uri)?, "match": rule }))
+                })
+                .collect::<Result<_>>()?;
+            // Sharing rewrites the item as much as an edit does, so what
+            // `carry_login_extras` keeps has to move with it. A passkey
+            // that cannot be rewrapped fails the share: better than an
+            // item that arrives in the organization without it.
+            let passkeys = l
+                .fido2_credentials
+                .as_deref()
+                .map(|list| {
+                    list.iter()
+                        .map(|p| rewrap_passkey(p, &reenc))
+                        .collect::<Result<Vec<_>>>()
+                })
+                .transpose()?;
+            let mut login = serde_json::json!({
                 "username": reenc_opt(l.username.as_deref())?,
                 "password": reenc_opt(l.password.as_deref())?,
                 "totp": reenc_opt(l.totp.as_deref())?,
                 "uris": uris,
-            }))
+                "autofillOnPageLoad": l.autofill_on_page_load,
+                "passwordRevisionDate": l.password_revision_date,
+            });
+            if let Some(passkeys) = passkeys {
+                login["fido2Credentials"] = serde_json::json!(passkeys);
+            }
+            Ok(login)
         })
         .transpose()?;
 
@@ -751,7 +870,9 @@ mod tests {
             totp: None,
             uris: Some(vec![CipherLoginUri {
                 uri: Some(encrypt_string("https://example.com", &item).unwrap()),
+                ..Default::default()
             }]),
+            ..Default::default()
         });
 
         let body = build_share_cipher_body(
@@ -1097,11 +1218,14 @@ mod tests {
             uris: Some(vec![
                 CipherLoginUri {
                     uri: Some(encrypt_string("https://a.example", &source).unwrap()),
+                    ..Default::default()
                 },
                 CipherLoginUri {
                     uri: Some(encrypt_string("https://b.example", &source).unwrap()),
+                    ..Default::default()
                 },
             ]),
+            ..Default::default()
         });
 
         let body =
@@ -1447,6 +1571,7 @@ mod tests {
             password: Some(encrypt_string(password, key).unwrap()),
             totp: None,
             uris: None,
+            ..Default::default()
         });
         cipher
     }
@@ -1701,5 +1826,247 @@ mod tests {
             cipher_to_edit_input(&cipher, &key),
             Err(Error::Crypto { .. })
         ));
+    }
+
+    // ============ what the editor does not know about ============
+
+    // A login holds things Clavix neither shows nor edits. Every write
+    // replaces the server's copy, so each of them has to be carried
+    // across explicitly. See `carry_login_extras`.
+
+    const NOW: &str = "2026-08-03T10:00:00.000Z";
+
+    fn passkey(key: &SymmetricKey) -> serde_json::Value {
+        serde_json::json!({
+            "credentialId": encrypt_string("credential-id", key).unwrap(),
+            "keyValue": encrypt_string("private-key-material", key).unwrap(),
+            "rpId": encrypt_string("example.org", key).unwrap(),
+            "counter": encrypt_string("0", key).unwrap(),
+            "creationDate": "2026-01-02T03:04:05.000Z",
+        })
+    }
+
+    /// A stored login with a passkey, the autofill flag, a password date
+    /// and an "exact" rule on the first of two URLs.
+    fn login_cipher_with_extras(key: &SymmetricKey) -> Cipher {
+        let mut cipher = login_cipher_with_password(key, "pw");
+        let login = cipher.login.as_mut().unwrap();
+        login.fido2_credentials = Some(vec![passkey(key)]);
+        login.autofill_on_page_load = Some(true);
+        login.password_revision_date = Some("2026-01-02T03:04:05.000Z".into());
+        login.uris = Some(vec![
+            CipherLoginUri {
+                uri: Some(encrypt_string("https://exact.example", key).unwrap()),
+                match_type: Some(3),
+            },
+            CipherLoginUri {
+                uri: Some(encrypt_string("https://default.example", key).unwrap()),
+                match_type: None,
+            },
+        ]);
+        cipher
+    }
+
+    fn input_with_uris(password: &str, uris: &[&str]) -> CipherCreateInput {
+        let mut input = login_input_with_password(password);
+        input.login.as_mut().unwrap().uris = uris.iter().map(|u| u.to_string()).collect();
+        input
+    }
+
+    #[test]
+    fn update_body_keeps_the_passkeys_the_flag_and_the_date() {
+        let key = test_key();
+        let cipher = login_cipher_with_extras(&key);
+        let input = input_with_uris("pw", &["https://exact.example"]);
+        let body = build_update_cipher_body(&input, &key, "user-uuid", &cipher, NOW).unwrap();
+        let login = &body["login"];
+        // Echoed as stored, ciphertext included: nothing was decrypted.
+        assert_eq!(
+            login["fido2Credentials"],
+            serde_json::json!([passkey_of(&cipher)])
+        );
+        assert_eq!(login["autofillOnPageLoad"], true);
+        assert_eq!(login["passwordRevisionDate"], "2026-01-02T03:04:05.000Z");
+    }
+
+    fn passkey_of(cipher: &Cipher) -> serde_json::Value {
+        cipher
+            .login
+            .as_ref()
+            .unwrap()
+            .fido2_credentials
+            .as_ref()
+            .unwrap()[0]
+            .clone()
+    }
+
+    #[test]
+    fn update_body_moves_the_password_date_only_with_the_password() {
+        let key = test_key();
+        let cipher = login_cipher_with_extras(&key);
+        let body = build_update_cipher_body(
+            &input_with_uris("new-pw", &[]),
+            &key,
+            "user-uuid",
+            &cipher,
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(body["login"]["passwordRevisionDate"], NOW);
+
+        // A login that had no password and gets its first one.
+        let mut bare = login_cipher_with_extras(&key);
+        let login = bare.login.as_mut().unwrap();
+        login.password = None;
+        login.password_revision_date = None;
+        let body = build_update_cipher_body(
+            &input_with_uris("first", &[]),
+            &key,
+            "user-uuid",
+            &bare,
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(body["login"]["passwordRevisionDate"], NOW);
+        // And one that still has none keeps no date.
+        let mut input = input_with_uris("", &[]);
+        input.login.as_mut().unwrap().password = None;
+        let body = build_update_cipher_body(&input, &key, "user-uuid", &bare, NOW).unwrap();
+        assert!(body["login"]["passwordRevisionDate"].is_null());
+    }
+
+    #[test]
+    fn update_body_keeps_each_url_rule_with_its_url() {
+        let key = test_key();
+        let cipher = login_cipher_with_extras(&key);
+        // Reordered, one blank row, one new URL, and the "exact" URL
+        // typed with stray spaces the write trims.
+        let input = input_with_uris(
+            "pw",
+            &[
+                "https://default.example",
+                "  ",
+                "https://new.example",
+                " https://exact.example ",
+            ],
+        );
+        let body = build_update_cipher_body(&input, &key, "user-uuid", &cipher, NOW).unwrap();
+        let rules: Vec<(String, serde_json::Value)> = body["login"]["uris"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|u| {
+                (
+                    decrypt_name(u["uri"].as_str().unwrap(), &key).unwrap(),
+                    u["match"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rules,
+            [
+                (
+                    "https://default.example".to_string(),
+                    serde_json::Value::Null
+                ),
+                ("https://new.example".to_string(), serde_json::Value::Null),
+                ("https://exact.example".to_string(), serde_json::json!(3)),
+            ]
+        );
+
+        // An edited URL is a new URL: the rule does not follow it.
+        let input = input_with_uris("pw", &["https://exact.example/login"]);
+        let body = build_update_cipher_body(&input, &key, "user-uuid", &cipher, NOW).unwrap();
+        assert!(body["login"]["uris"][0]["match"].is_null());
+    }
+
+    #[test]
+    fn update_body_invents_nothing_on_a_plain_login() {
+        let key = test_key();
+        let cipher = login_cipher_with_password(&key, "pw");
+        let body = build_update_cipher_body(
+            &input_with_uris("pw", &["https://a.example"]),
+            &key,
+            "user-uuid",
+            &cipher,
+            NOW,
+        )
+        .unwrap();
+        let login = &body["login"];
+        assert!(login.get("fido2Credentials").is_none());
+        assert!(login["autofillOnPageLoad"].is_null());
+        assert!(login["passwordRevisionDate"].is_null());
+        assert!(login["uris"][0]["match"].is_null());
+    }
+
+    #[test]
+    fn share_body_takes_the_passkeys_and_the_rules_to_the_new_key() {
+        let source = test_key();
+        let target = other_test_key();
+        let cipher = login_cipher_with_extras(&source);
+        let body =
+            build_share_cipher_body(&cipher, &source, &target, "org", &[], "user-uuid").unwrap();
+        let login = &body["cipher"]["login"];
+
+        let shared = &login["fido2Credentials"][0];
+        for (field, plain) in [
+            ("credentialId", "credential-id"),
+            ("keyValue", "private-key-material"),
+            ("rpId", "example.org"),
+            ("counter", "0"),
+        ] {
+            let value = shared[field].as_str().unwrap();
+            assert_eq!(decrypt_name(value, &target).unwrap(), plain, "{field}");
+            assert!(
+                decrypt_name(value, &source).is_err(),
+                "{field} left under the old key"
+            );
+        }
+        // Not an EncString: left alone rather than failing the share.
+        assert_eq!(shared["creationDate"], "2026-01-02T03:04:05.000Z");
+
+        assert_eq!(login["autofillOnPageLoad"], true);
+        assert_eq!(login["passwordRevisionDate"], "2026-01-02T03:04:05.000Z");
+        assert_eq!(login["uris"][0]["match"], 3);
+        assert!(login["uris"][1]["match"].is_null());
+    }
+
+    #[test]
+    fn share_body_fails_rather_than_drop_a_passkey_it_cannot_read() {
+        let source = test_key();
+        let stranger = other_test_key();
+        let mut cipher = login_cipher_with_extras(&source);
+        cipher.login.as_mut().unwrap().fido2_credentials = Some(vec![passkey(&stranger)]);
+        assert!(
+            build_share_cipher_body(&cipher, &source, &test_key(), "org", &[], "user-uuid")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_login_read_from_the_server_keeps_what_it_carries_through_the_cache() {
+        // The vault cache is the sync response serialised again: a field
+        // that does not survive this round trip is lost at the next start.
+        let wire = serde_json::json!({
+            "username": null,
+            "uris": [{ "uri": "2.enc", "match": 3 }, { "uri": "2.enc" }],
+            "fido2Credentials": [{ "keyValue": "2.enc", "creationDate": "2026-01-02" }],
+            "autofillOnPageLoad": false,
+            "passwordRevisionDate": "2026-01-02T03:04:05.000Z",
+        });
+        let login: CipherLogin = serde_json::from_value(wire).unwrap();
+        let again: CipherLogin =
+            serde_json::from_value(serde_json::to_value(&login).unwrap()).unwrap();
+        let uris = again.uris.as_deref().unwrap();
+        assert_eq!(uris[0].match_type, Some(3));
+        assert_eq!(uris[1].match_type, None);
+        assert_eq!(again.fido2_credentials.as_deref().map(<[_]>::len), Some(1));
+        assert_eq!(again.autofill_on_page_load, Some(false));
+        assert_eq!(
+            again.password_revision_date.as_deref(),
+            Some("2026-01-02T03:04:05.000Z")
+        );
+        // The wire name, not the Rust one.
+        assert_eq!(serde_json::to_value(&login).unwrap()["uris"][0]["match"], 3);
     }
 }
