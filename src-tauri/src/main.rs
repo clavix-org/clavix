@@ -2,6 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // `clavix item …` is a short-lived client of the Clavix that is already
+    // running: it must not start a second one, raise the window through
+    // the single-instance guard, or load WebKit. See `clavix_lib::cli`.
+    if let Some(code) = clavix_lib::cli::run_if_requested() {
+        std::process::exit(code);
+    }
+
     // Ubuntu 24.04 ships WebKit2GTK 4.1 with the DMABUF renderer enabled
     // by default. That renderer needs the running user to be able to
     // allocate GBM buffers via /dev/dri, which means membership in the

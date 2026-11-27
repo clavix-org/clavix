@@ -2,6 +2,7 @@ pub mod app_mode;
 pub mod audit;
 pub mod auth;
 pub mod cipher;
+pub mod cli;
 pub mod clipboard;
 pub mod export;
 pub mod import;

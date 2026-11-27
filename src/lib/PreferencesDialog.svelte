@@ -36,6 +36,8 @@
     onApplyBlurNotes: (value: boolean) => void;
     searchNotes: boolean;
     onApplySearchNotes: (value: boolean) => void;
+    cliAccess: boolean;
+    onApplyCliAccess: (value: boolean) => void;
     onApplyLocale: (loc: Locale) => void;
     onApplyTheme: (pref: ThemePref) => void;
     onApplyAutoLock: (trigger: AutoLockTrigger, minutes: number) => void;
@@ -72,6 +74,8 @@
     onApplyBlurNotes,
     searchNotes,
     onApplySearchNotes,
+    cliAccess,
+    onApplyCliAccess,
     onApplyLocale,
     onApplyTheme,
     onApplyAutoLock,
@@ -277,6 +281,8 @@
   // case the screen-lock options would silently never fire, so the UI
   // says so rather than letting the user pick a dead setting.
   let screenLockAvailable = $state<boolean | null>(null);
+  // Unix builds only; the row stays hidden until the backend says so.
+  let cliAccessAvailable = $state(false);
   let autostartEnabled = $state(false);
   let autostartBusy = $state(false);
   let autostartError = $state<string | null>(null);
@@ -328,6 +334,10 @@
       .screenLockAvailable()
       .then((v) => (screenLockAvailable = v))
       .catch(() => (screenLockAvailable = false));
+    void api
+      .cliAccessAvailable()
+      .then((v) => (cliAccessAvailable = v))
+      .catch(() => (cliAccessAvailable = false));
     await refreshSshAgent();
     await refreshYubikey();
   }
@@ -490,6 +500,20 @@
             </label>
             <p class="hint">{m.settings_search_notes_hint()}</p>
           </dd>
+          {#if cliAccessAvailable}
+            <dt>{m.settings_cli_access()}</dt>
+            <dd>
+              <label class="ssh-agent-autostart">
+                <input
+                  type="checkbox"
+                  checked={cliAccess}
+                  onchange={(e) => onApplyCliAccess((e.currentTarget as HTMLInputElement).checked)}
+                />
+                {m.settings_cli_access_label()}
+              </label>
+              <p class="hint">{m.settings_cli_access_hint()}</p>
+            </dd>
+          {/if}
         </dl>
       </div>
     {:else if tab === "window"}

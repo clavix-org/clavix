@@ -170,6 +170,12 @@ export const api = {
   setSearchNotes: (value: boolean) =>
     invoke<SyncSummary | null>("set_search_notes", { value }),
 
+  /** Whether this build has the `clavix item …` command line (Unix). */
+  cliAccessAvailable: () => invoke<boolean>("cli_access_available"),
+
+  /** Open or close the socket the command line talks to. */
+  setCliAccess: (enabled: boolean) => invoke<void>("set_cli_access", { enabled }),
+
   createFolder: (name: string) => invoke<string>("create_folder", { name }),
 
   deleteFolder: (folderId: string) => invoke<void>("delete_folder", { folderId }),

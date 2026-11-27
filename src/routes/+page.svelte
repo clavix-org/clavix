@@ -831,6 +831,7 @@
 
   let unlistenSessionLocked: UnlistenFn | null = null;
   let unlistenOpenSshSettings: UnlistenFn | null = null;
+  let unlistenVaultChanged: UnlistenFn | null = null;
 
   $effect(() => {
     api.setTrayIconStyle(prefs.trayIconStyle).catch((e) => {
@@ -847,6 +848,20 @@
     // Tray menu "Verrouiller maintenant" clears the Rust session
     // out-of-band — without this listener the UI would stay on the
     // vault view until the next IPC call hits a session check.
+    // The command line's socket is closed until the stored preference
+    // says otherwise; nothing is lost if this fails but the command line.
+    if (prefs.cliAccess) {
+      api.setCliAccess(true).catch((e) => {
+        console.warn("[clavix] setCliAccess failed:", e);
+      });
+    }
+    // A change made with `clavix item …` (Rust `commands::cli`).
+    unlistenVaultChanged = await listen<{ id: string; action: string }>(
+      "clavix:vault-changed",
+      (event) => {
+        void vault.applyExternalChange(event.payload.id, event.payload.action);
+      },
+    );
     unlistenSessionLocked = await listen("clavix:session-locked", () => {
       lockAndReset();
     });
@@ -875,7 +890,22 @@
     vault.dispose();
     unlistenSessionLocked?.();
     unlistenOpenSshSettings?.();
+    unlistenVaultChanged?.();
   });
+
+  /**
+   * Turn the command line's socket on or off. The preference only
+   * changes once the backend has done it, so the checkbox never claims
+   * a socket that failed to open.
+   */
+  async function applyCliAccess(value: boolean) {
+    try {
+      await api.setCliAccess(value);
+      prefs.setCliAccess(value);
+    } catch (e) {
+      vault.error = formatError(e);
+    }
+  }
 
   function completeOnboarding() {
     prefs.markOnboarded();
@@ -1317,6 +1347,8 @@
     prefs.setSearchNotes(v);
     void vault.applySearchNotes(v);
   }}
+  cliAccess={prefs.cliAccess}
+  onApplyCliAccess={applyCliAccess}
   onApplyLocale={(loc) => prefs.applyLocale(loc, { reload: true })}
   onApplyTheme={(t) => prefs.applyTheme(t)}
   onApplyAutoLock={(trigger, min) => prefs.setAutoLock(trigger, min)}

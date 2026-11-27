@@ -19,8 +19,25 @@ use rsa::RsaPrivateKey;
 
 use crate::state::{mark_activity, AppState};
 
+tokio::task_local! {
+    /// Set for the length of a request nobody at the keyboard made.
+    static UNATTENDED: ();
+}
+
+/// Run `request` without it counting as a sign of the user.
+///
+/// For the command line (`cli_server`): its requests reach the same
+/// commands as the window's, and every one of those passes through
+/// `ensure_fresh_tokens`. A script calling `clavix item …` from a timer
+/// proves that a timer is running, not that anyone is there, and must not
+/// hold the auto-lock off: the same reasoning as `mark_activity`'s note on
+/// polled commands.
+pub async fn unattended<F: std::future::Future>(request: F) -> F::Output {
+    UNATTENDED.scope((), request).await
+}
+
 /// Refresh the access token if it is close to expiring, and record that
-/// the user is still around.
+/// the user is still around (unless the request is [`unattended`]).
 ///
 /// `mark_activity` lives here rather than in the engine because it feeds
 /// the auto-lock watchdog, which is a desktop concern — but it belongs on
@@ -28,7 +45,9 @@ use crate::state::{mark_activity, AppState};
 /// server goes through here, and a `mark_activity` that has to be
 /// remembered separately is one that eventually isn't.
 pub async fn ensure_fresh_tokens(state: &AppState) -> Result<()> {
-    mark_activity(state);
+    if UNATTENDED.try_with(|_| ()).is_err() {
+        mark_activity(state);
+    }
     core_auth::ensure_fresh_tokens(&state.session).await
 }
 
@@ -87,4 +106,26 @@ pub fn with_pending_two_factor<R>(
     f: impl FnOnce(&PendingTwoFactor) -> Result<R>,
 ) -> Result<R> {
     core_auth::with_pending_two_factor(&state.pending_2fa, f)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// A window command proves someone is there; a command-line request
+    /// does not, or a script on a timer would hold the auto-lock off.
+    #[tokio::test]
+    async fn only_an_attended_request_counts_as_activity() {
+        let state = AppState::default();
+        let long_ago = Instant::now() - Duration::from_secs(3600);
+
+        *state.last_activity.lock() = long_ago;
+        // No session: the call fails, after the bookkeeping under test.
+        let _ = unattended(ensure_fresh_tokens(&state)).await;
+        assert_eq!(*state.last_activity.lock(), long_ago);
+
+        let _ = ensure_fresh_tokens(&state).await;
+        assert!(*state.last_activity.lock() > long_ago);
+    }
 }

@@ -247,6 +247,30 @@ describe("blurNotes", () => {
   });
 });
 
+describe("cliAccess", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("defaults to off", () => {
+    const prefs = new PrefsController();
+    prefs.bootstrap();
+    expect(prefs.cliAccess).toBe(false);
+  });
+
+  it("turns on only on an explicit true, and persists", () => {
+    localStorage.setItem("clavix.cliAccess", "yes");
+    const a = new PrefsController();
+    a.bootstrap();
+    expect(a.cliAccess).toBe(false);
+
+    a.setCliAccess(true);
+    const b = new PrefsController();
+    b.bootstrap();
+    expect(b.cliAccess).toBe(true);
+  });
+});
+
 describe("searchNotes", () => {
   beforeEach(() => {
     localStorage.clear();

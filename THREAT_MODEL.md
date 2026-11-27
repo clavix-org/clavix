@@ -320,6 +320,32 @@ An internal review of the phone features was done before they were enabled by de
 - **Windows has no phone features.** The storage relies on Unix file modes and the Windows agent (named pipe, Pageant) has no locked-vault counterpart. The settings do not show the phone blocks there.
 - **The Flatpak build does not contain them yet**: it is built with `--no-default-features`.
 
+## Optional: Command-Line Access
+
+Linux and macOS builds only, and off until the user turns it on in the preferences ("Allow changes from the command line"). While it is on, Clavix listens on a Unix socket next to the SSH agent's (`$XDG_RUNTIME_DIR/clavix/cli.sock`, or the app's own runtime directory under Flatpak), and `clavix item …`, the same binary started as a short-lived client, sends it one request per connection. The client holds no key and never authenticates to the server: every write is made by the running app through the commands the window uses.
+
+**What a request can do.** Create a login or a secure note in the personal vault; change the name, username, password, URLs, notes, folder or favourite flag of an existing item; archive, unarchive, move to the trash, restore.
+
+**What no request can do.**
+
+- Read anything. The protocol has no read operation, and a reply carries an item id or an error message, never item content. The one thing it discloses beyond the id of the item acted on: when a *name* given by the caller matches several items, the error lists their ids. A caller can therefore learn whether an item of a given exact name exists, and how many.
+- Delete permanently. `delete` is the trash; emptying it stays in the window.
+- Edit an item that asks for the master password (reprompt). The window asks for the password before opening such an item in the editor; the command line cannot ask, so it refuses. It can still archive or trash it, both reversible.
+- Work while the vault is locked, or on a standalone (read-only) session. The socket answers with the reason.
+- Keep the vault unlocked. A request does not count as user activity, so a script on a timer cannot hold the auto-lock off.
+
+**Who can send a request.** The socket is 0600 in a 0700 directory, and each connection's peer uid is compared with the socket's owner; anything else is refused. As with the agent socket, this means *any process running as the user*.
+
+| Who | What they get |
+| --- | --- |
+| A process running as the user, option on, vault unlocked | Can add items, overwrite fields of items whose id or exact name it knows, and archive or trash them. Overwritten passwords go to the item's password history (last five) and trashed items stay in the trash, so the damage is recoverable, but it is damage: a changed URL or a swapped password is not announced beyond the window refreshing. It cannot read a secret through this channel. |
+| The same process, option off (the default) | Nothing: there is no socket. |
+| Another user on the machine | Nothing: directory and socket permissions, then the peer uid check. |
+
+The password of a new or edited item travels over the socket in clear, between two processes of the same user. It is never accepted as a command-line argument (visible in `ps` and kept in shell history), only on standard input.
+
+The preference is stored in the WebView's local storage like the others. A process that can write there can turn the option on; it can equally read the session files, which this document already assumes of a process running as the user.
+
 ## Out of Scope for the Current Design
 
 The current project does not attempt to solve:

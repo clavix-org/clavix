@@ -134,6 +134,38 @@ destruction.
 
 ---
 
+## Changing items from a terminal
+
+On Linux and macOS, `clavix item …` creates and changes items in the vault that is open in the running Clavix. It is the same binary, acting as a client of the app: it never asks for the master password, holds no key, and what it changes shows up in the window at once.
+
+Turn it on first: **Preferences > Security > Command line**. It is off by default.
+
+```bash
+# Create a login; the new item's id is printed.
+pwgen -s 24 1 | clavix item create --name example.org \
+    --username me --uri https://example.org --folder work --password-stdin
+
+clavix item create --type note --name "Wi-Fi guests" --notes "code on the fridge"
+
+# <item> is an id, or the exact name of exactly one item.
+clavix item edit example.org --username other --favorite
+clavix item edit example.org --password-stdin < new-password.txt
+clavix item archive example.org
+clavix item delete example.org      # to the trash
+clavix item restore example.org
+```
+
+`clavix item --help` lists every option. A few deliberate limits:
+
+- **Write-only.** No command reads an item back: nothing prints a password, a note or a list of items.
+- **No password on the command line.** It is read from standard input (`--password-stdin`), never from an argument, which other processes and the shell history would see.
+- **Logins and notes only** for now, in the personal vault; folders must already exist.
+- **Items that ask for the master password** can be trashed or archived, but not edited: the window asks for the password first, and a terminal has no way to.
+- **`delete` is the trash**, never a permanent deletion.
+- Clavix must be **running and unlocked**. A request does not count as activity for the auto-lock.
+
+Under Flatpak the command is `flatpak run org.clavix.Clavix item …`. See `THREAT_MODEL.md` ("Command-Line Access") for what turning this on exposes.
+
 ## Using the SSH agent persistently
 
 ### Linux / macOS
